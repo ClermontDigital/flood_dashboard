@@ -23,13 +23,29 @@ GAUGE is designed with rural Queensland communities in mind, where reliable inte
 ### Data Flow
 
 ```
-Queensland WMIP API ──┐
-                      ├──> Next.js API Routes ──> SWR Cache ──> React UI
-BOM Water Data API ───┘           │
-                                  ├── Rate limiting
-                                  ├── Input sanitization
-                                  └── Mock data fallback (dev)
+                                    Cloud Scheduler (every 2 min)
+                                             │
+                                             ▼
+Queensland WMIP API ──┐              ┌──────────────┐
+                      ├──> Cron API ─>│  Firestore   │
+BOM Water Data API ───┘              └──────────────┘
+                                             │
+                                             ▼
+                              Next.js API Routes ──> SWR Cache ──> React UI
+                                      │
+                                      ├── Rate limiting
+                                      ├── Input sanitization
+                                      └── Direct fetch fallback
 ```
+
+### Cloud Architecture
+
+GAUGE uses **Firestore + Cloud Scheduler** for reliable data caching across Cloud Run instances:
+
+- **Cloud Scheduler** triggers the `/api/cron/fetch-water-data` endpoint every 2 minutes
+- **Firestore** stores the latest readings, shared across all Cloud Run instances
+- **API routes** read from Firestore (fast) with fallback to direct WMIP/BOM fetch
+- **Application Default Credentials (ADC)** handle authentication automatically on Cloud Run
 
 ### Key Components
 
@@ -40,7 +56,7 @@ BOM Water Data API ───┘           │
 
 ## Features
 
-- **Real-time Water Levels**: Live data from 17 gauge stations across the Fitzroy Basin
+- **Real-time Water Levels**: Live data from 19 gauge stations across the Fitzroy Basin
 - **Discharge/Flow Rates**: Water flow data (ML/day or cumec) at gauge locations
 - **Dam Storage Levels**: Fairbairn Dam storage volume and percentage full
 - **Rainfall Data**: Rainfall readings at gauge stations
@@ -58,6 +74,9 @@ BOM Water Data API ───┘           │
 - **Maps**: Leaflet / React-Leaflet
 - **Charts**: Recharts
 - **Data Fetching**: SWR with auto-refresh
+- **Database**: Google Cloud Firestore
+- **Hosting**: Google Cloud Run
+- **Scheduling**: Google Cloud Scheduler
 
 ## Quick Start
 
@@ -93,6 +112,8 @@ See `.env.example` for all available configuration options:
 | `NEXT_PUBLIC_BOM_WATERDATA_URL` | BOM Water Data API | Set |
 | `NEXT_PUBLIC_ENABLE_MOCK_DATA` | Enable mock data fallback | `true` (dev only) |
 | `RATE_LIMIT_MAX_REQUESTS` | API rate limit per minute | `60` |
+| `GOOGLE_CLOUD_PROJECT` | GCP project ID for Firestore | Auto-detected on Cloud Run |
+| `CRON_SECRET` | Secret for Cloud Scheduler auth | Optional |
 
 ## Data Sources
 
@@ -123,16 +144,25 @@ Official flood warnings and alerts for Queensland catchments.
 
 ## Monitored Infrastructure
 
-### Gauge Stations (17 Total)
+### Gauge Stations (19 Total)
 
-| Region | Gauges |
-|--------|--------|
-| Clermont Area | Theresa Creek, Sandy Creek, Clermont Alpha Rd |
-| Isaac River | Yatton, Deverill, Connors River |
-| Nogoa River | Craigmore, Duck Ponds, Retreat Creek |
+| River System | Gauges |
+|--------------|--------|
+| Clermont/Sandy Creek | Sandy Creek @ Clermont |
+| Theresa Creek | Theresa Creek @ Valeria, Gregory Hwy |
+| Isaac River | Yatton, Deverill |
+| Connors River | Mount Bridget, Pink Lagoon |
+| Nogoa River | Craigmore, Duck Ponds |
 | Mackenzie River | Bingegang, Coolmaringa, Rileys Crossing |
 | Comet River | Comet Weir, The Lake |
 | Fitzroy River | The Gap, Yaamba, Rockhampton |
+
+### Hydrology
+
+The Fitzroy Basin river systems flow as follows:
+- **Sandy Creek** (Clermont) → **Theresa Creek** → **Nogoa River**
+- **Isaac River** + **Connors River** → **Mackenzie River**
+- **Nogoa River** + **Comet River** → **Mackenzie River** → **Fitzroy River** → Coast
 
 ### Dam Storage
 
@@ -142,7 +172,37 @@ Official flood warnings and alerts for Queensland catchments.
 
 ## Production Deployment
 
-### Docker
+### Cloud Run (Recommended)
+
+GAUGE is deployed on Google Cloud Run with Firestore for data caching.
+
+**Live Sites:**
+- **Production**: https://gauge.clermont.digital
+- **Test**: https://gauge-dashboard-test-979660110789.asia-southeast1.run.app
+
+**Deploy to Cloud Run:**
+
+```bash
+# Build and push image
+docker build -t gcr.io/YOUR_PROJECT/gauge-dashboard .
+docker push gcr.io/YOUR_PROJECT/gauge-dashboard
+
+# Deploy to Cloud Run
+gcloud run deploy gauge-dashboard \
+  --image gcr.io/YOUR_PROJECT/gauge-dashboard \
+  --region asia-southeast1 \
+  --allow-unauthenticated
+
+# Create Cloud Scheduler job for data fetching
+gcloud scheduler jobs create http gauge-fetch-water-data \
+  --location=asia-southeast1 \
+  --schedule="*/2 * * * *" \
+  --uri="https://YOUR_SERVICE_URL/api/cron/fetch-water-data" \
+  --http-method=POST \
+  --oidc-service-account-email=YOUR_SERVICE_ACCOUNT
+```
+
+### Docker (Local)
 
 ```bash
 docker build -t gauge-dashboard .
@@ -163,6 +223,9 @@ docker-compose up -d
 | `/api/water-levels/[id]` | GET | Single gauge with 24hr history |
 | `/api/warnings` | GET | Active BOM flood warnings |
 | `/api/predictions` | GET | Calculated flood forecasts |
+| `/api/weather` | GET | Current weather conditions |
+| `/api/rainfall` | GET | Regional rainfall data and forecasts |
+| `/api/cron/fetch-water-data` | POST | Cloud Scheduler endpoint (internal) |
 
 ## Important Disclaimer
 

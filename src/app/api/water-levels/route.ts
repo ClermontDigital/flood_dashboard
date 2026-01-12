@@ -3,8 +3,8 @@
  * GET /api/water-levels
  *
  * Returns current water levels for all 17 gauges.
- * Aggregates data from WMIP (primary) with BOM fallback.
- * Responses are cached for 5 minutes.
+ * Primary: Reads from Firestore (updated every 1-2 min by Cloud Scheduler)
+ * Fallback: Direct fetch from WMIP/BOM if Firestore is unavailable
  */
 
 import { NextResponse, NextRequest } from 'next/server'
@@ -18,28 +18,10 @@ import {
   fetchAllBOMDamStorage,
 } from '@/lib/data-sources'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
-import { DataCache } from '@/lib/cache'
+import { getWaterLevelData } from '@/lib/firestore'
 
 // Cache configuration - revalidate every 5 minutes
 export const revalidate = 300
-
-// Type for cached water level data
-interface CachedWaterData {
-  waterLevelMap: Map<string, WaterLevel>
-  dischargeMap: Map<string, DischargeReading>
-  rainfallMap: Map<string, RainfallReading>
-  damStorage: DamStorageReading[]
-  sources: string[]
-}
-
-// Typed cache instance for water levels
-// Uses stale-while-revalidate: returns cached data fast, refreshes in background
-// Shorter TTL during flood conditions (1 min) vs normal (3 min)
-const waterLevelsCache = new DataCache<CachedWaterData>('water-levels', {
-  normalTTL: 3 * 60 * 1000,      // 3 minutes normally
-  elevatedTTL: 60 * 1000,        // 1 minute during flood conditions
-  staleThreshold: 2 * 60 * 1000, // Refresh after 2 minutes
-})
 
 // Known flood thresholds for gauges
 const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
@@ -56,15 +38,21 @@ const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
 }
 
 /**
- * Fetch all water level data from sources (WMIP primary, BOM fallback)
- * This function is called by the cache when data needs to be refreshed
+ * Fallback: Fetch water level data directly from WMIP/BOM
+ * Only used if Firestore is unavailable or data is too stale
  */
-async function fetchWaterLevelData(): Promise<CachedWaterData> {
+async function fetchWaterLevelDataDirect(): Promise<{
+  waterLevelMap: Map<string, WaterLevel>
+  dischargeMap: Map<string, DischargeReading>
+  rainfallMap: Map<string, RainfallReading>
+  damStorage: DamStorageReading[]
+  sources: string[]
+}> {
   const gaugeIds = GAUGE_STATIONS.map((station) => station.id)
   const sources: string[] = []
-  let waterLevelMap = new Map<string, WaterLevel>()
+  const waterLevelMap = new Map<string, WaterLevel>()
 
-  console.log('[API] Fetching water levels for', gaugeIds.length, 'gauges')
+  console.log('[API] Fallback: Direct fetch from WMIP/BOM for', gaugeIds.length, 'gauges')
 
   // Helper to check if data is fresh (within last 48 hours)
   const isDataFresh = (timestamp: string): boolean => {
@@ -76,7 +64,6 @@ async function fetchWaterLevelData(): Promise<CachedWaterData> {
 
   try {
     // Try WMIP first (real-time telemetry data)
-    console.log('[API] Trying WMIP as primary source (real-time telemetry)...')
     const wmipResults = await fetchWMIPMultipleGauges(gaugeIds)
 
     let wmipSuccessCount = 0
@@ -89,18 +76,8 @@ async function fetchWaterLevelData(): Promise<CachedWaterData> {
         }
         waterLevelMap.set(gaugeId, enrichedData)
         wmipSuccessCount++
-
-        if (result.data.level > 3) {
-          console.log(`[API] WMIP high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
-        }
-      } else if (result.data && !isDataFresh(result.data.timestamp)) {
-        console.log(`[API] WMIP data stale for ${gaugeId}: ${result.data.timestamp}`)
-      } else if (result.error) {
-        console.log(`[API] WMIP error for ${gaugeId}: ${result.error}`)
       }
     }
-
-    console.log(`[API] WMIP returned fresh data for ${wmipSuccessCount}/${gaugeIds.length} gauges`)
 
     if (wmipSuccessCount > 0) {
       sources.push('wmip')
@@ -110,7 +87,6 @@ async function fetchWaterLevelData(): Promise<CachedWaterData> {
     const missingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
 
     if (missingGaugeIds.length > 0) {
-      console.log(`[API] Trying BOM for ${missingGaugeIds.length} missing gauges...`)
       const bomResults = await fetchBOMMultipleGauges(missingGaugeIds)
 
       let bomSuccessCount = 0
@@ -123,45 +99,28 @@ async function fetchWaterLevelData(): Promise<CachedWaterData> {
           }
           waterLevelMap.set(gaugeId, enrichedData)
           bomSuccessCount++
-
-          if (result.data.level > 3) {
-            console.log(`[API] BOM high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
-          }
-        } else if (result.data && !isDataFresh(result.data.timestamp)) {
-          console.log(`[API] BOM data stale for ${gaugeId}: ${result.data.timestamp}`)
         }
       }
-
-      console.log(`[API] BOM returned fresh data for ${bomSuccessCount}/${missingGaugeIds.length} gauges`)
 
       if (bomSuccessCount > 0) {
         sources.push('bom')
       }
     }
 
-    // Log missing gauges
-    const stillMissingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
-    if (stillMissingGaugeIds.length > 0) {
-      console.log(`[API] No fresh data for ${stillMissingGaugeIds.length} gauges:`, stillMissingGaugeIds.join(', '))
-    }
-
     if (waterLevelMap.size === 0) {
-      console.warn('[API] No data available from any source')
       sources.push('unavailable')
     }
   } catch (error) {
-    console.error('Error fetching water levels:', error)
+    console.error('[API] Error in direct fetch:', error)
     sources.push('error')
   }
 
-  // Fetch extended data (discharge, rainfall) and dam storage in parallel
+  // Fetch extended data
   let dischargeMap = new Map<string, DischargeReading>()
   let rainfallMap = new Map<string, RainfallReading>()
   let damStorage: DamStorageReading[] = []
 
   try {
-    console.log('[API] Fetching extended data (discharge, rainfall, dam storage)...')
-
     const [extendedData, damStorageData] = await Promise.all([
       fetchBOMExtendedData(gaugeIds),
       fetchAllBOMDamStorage(),
@@ -170,8 +129,6 @@ async function fetchWaterLevelData(): Promise<CachedWaterData> {
     dischargeMap = extendedData.discharge
     rainfallMap = extendedData.rainfall
     damStorage = damStorageData
-
-    console.log(`[API] Extended data: ${dischargeMap.size} discharge, ${rainfallMap.size} rainfall, ${damStorage.length} dam storage readings`)
   } catch (error) {
     console.error('[API] Error fetching extended data:', error)
   }
@@ -185,20 +142,6 @@ async function fetchWaterLevelData(): Promise<CachedWaterData> {
   }
 }
 
-/**
- * Check if any gauge has elevated water levels (for cache TTL adjustment)
- * Uses shorter cache TTL during elevated conditions for fresher data
- */
-function checkElevatedWaterLevels(data: CachedWaterData): boolean {
-  for (const [, reading] of data.waterLevelMap) {
-    // 'watch' = approaching minor flood, 'warning' = moderate flood, 'danger' = major flood
-    if (reading.status === 'watch' || reading.status === 'warning' || reading.status === 'danger') {
-      return true
-    }
-  }
-  return false
-}
-
 export async function GET(request: NextRequest): Promise<NextResponse<WaterLevelsResponse>> {
   // Apply rate limiting
   const clientIp = getClientIp(request)
@@ -207,27 +150,42 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
     return rateLimitExceededResponse(rateLimitResult) as NextResponse<WaterLevelsResponse>
   }
 
-  // Use stale-while-revalidate caching pattern
-  // Returns cached data immediately for fast page loads
-  // Refreshes in background when cache is stale (after 2 min)
-  // Uses shorter TTL (1 min) during flood conditions vs normal (3 min)
-  const cacheStats = waterLevelsCache.getStats()
-  console.log(`[API] Cache stats before fetch: ${cacheStats ? `age=${Math.round(cacheStats.age/1000)}s, elevated=${cacheStats.isElevated}, ttl=${cacheStats.ttl/1000}s` : 'EMPTY'}`)
+  let waterLevelMap: Map<string, WaterLevel>
+  let dischargeMap: Map<string, DischargeReading>
+  let rainfallMap: Map<string, RainfallReading>
+  let damStorage: DamStorageReading[]
+  let sources: string[]
+  let dataAge = 0
+  let fromFirestore = false
 
-  const { data: cachedData, fromCache, age } = await waterLevelsCache.getOrFetch(
-    fetchWaterLevelData,
-    checkElevatedWaterLevels
-  )
-  console.log(`[API] Cache result: fromCache=${fromCache}, age=${Math.round(age/1000)}s`)
+  // Try Firestore first (data updated every 1-2 min by Cloud Scheduler)
+  // Max age: 10 minutes - if data is older, fall back to direct fetch
+  const firestoreData = await getWaterLevelData(10 * 60 * 1000)
 
-  const { waterLevelMap, dischargeMap, rainfallMap, damStorage, sources } = cachedData
+  if (firestoreData) {
+    // Use Firestore data (fast path)
+    waterLevelMap = new Map(Object.entries(firestoreData.waterLevels))
+    dischargeMap = new Map(Object.entries(firestoreData.discharge))
+    rainfallMap = new Map(Object.entries(firestoreData.rainfall))
+    damStorage = firestoreData.damStorage
+    sources = [...firestoreData.sources, 'firestore']
+    dataAge = Date.now() - firestoreData.fetchedAt
+    fromFirestore = true
 
-  // Add cache info to logs
-  if (fromCache) {
-    console.log(`[API] Serving from cache (age: ${Math.round(age / 1000)}s)`)
+    console.log(`[API] Serving from Firestore (age: ${Math.round(dataAge / 1000)}s, ${waterLevelMap.size} gauges)`)
+  } else {
+    // Fallback to direct fetch (slow path - only if Firestore is unavailable)
+    console.log('[API] Firestore unavailable, using direct fetch fallback')
+    const directData = await fetchWaterLevelDataDirect()
+    waterLevelMap = directData.waterLevelMap
+    dischargeMap = directData.dischargeMap
+    rainfallMap = directData.rainfallMap
+    damStorage = directData.damStorage
+    sources = [...directData.sources, 'direct-fallback']
+    dataAge = 0
+
+    console.log(`[API] Direct fetch complete: ${waterLevelMap.size} gauges`)
   }
-
-  console.log(`[API] Response: ${waterLevelMap.size} gauges, sources: ${sources.join(', ')}`)
 
   // Build response
   const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => ({
@@ -241,15 +199,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
   const response: WaterLevelsResponse = {
     timestamp: new Date().toISOString(),
     gauges,
-    sources: fromCache ? [...sources, 'cached'] : sources,
+    sources,
     damStorage: damStorage.length > 0 ? damStorage : undefined,
   }
 
   return NextResponse.json(response, {
     headers: {
-      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
-      'X-Cache-Age': String(Math.round(age / 1000)),
-      'X-Cache-Status': fromCache ? 'HIT' : 'MISS',
+      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30',
+      'X-Data-Age': String(Math.round(dataAge / 1000)),
+      'X-Data-Source': fromFirestore ? 'firestore' : 'direct',
     },
   })
 }

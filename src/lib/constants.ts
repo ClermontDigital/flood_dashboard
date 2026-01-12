@@ -218,15 +218,22 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     role: 'Mid Isaac',
   },
   {
-    id: '130408A',
+    id: '130403A',
+    name: 'Connors River @ Mount Bridget',
+    stream: 'Connors River',
+    riverSystem: 'isaac',
+    lat: -21.8500,
+    lng: 149.0000,
+    role: 'Isaac tributary - dam site',
+  },
+  {
+    id: '130404A',
     name: 'Connors River @ Pink Lagoon',
     stream: 'Connors River',
     riverSystem: 'isaac',
     lat: -21.9500,
     lng: 148.7833,
-    role: 'Tributary input',
-    isOffline: true,
-    lastDataYear: 2024,
+    role: 'Tributary confluence',
   },
 
   // Nogoa River System (2 active + 1 offline)
@@ -354,23 +361,24 @@ export const QUICK_LINKS = [
 ]
 
 // Extended river paths for map overlay (with additional waypoints for better visibility)
+// Reference: Theresa Creek flows into Nogoa River (Wikipedia), Isaac/Connors flow into Mackenzie
 export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
-  // Sandy Creek - through Clermont and downstream
+  // Sandy Creek - through Clermont, flows SOUTH toward Theresa Creek/Nogoa system
   clermont: [
-    [-22.87, 147.60], // Junction with Theresa Creek
     [-22.8245, 147.6392], // Sandy Creek @ Clermont
-    [-22.78, 147.68],
-    [-22.72, 147.72],
-    [-22.65, 147.78],
+    [-22.87, 147.60], // Junction with Theresa Creek
+    [-22.92, 147.58], // Continues to Theresa Creek system
   ],
-  // Theresa Creek - upstream feeding into Sandy Creek
+  // Theresa Creek - flows into Nogoa River (confirmed via Wikipedia)
   theresa: [
     [-23.0833, 147.4167], // Theresa Creek @ Valeria (far upstream)
     [-23.02, 147.48],
     [-22.9740, 147.5577], // Theresa Creek @ Gregory Hwy
-    [-22.92, 147.58],
-    [-22.87, 147.60], // Joins Sandy Creek
-    [-22.8245, 147.6392], // Sandy Creek @ Clermont
+    [-22.92, 147.58], // Sandy Creek joins here
+    [-23.10, 147.70], // Flows southeast toward Nogoa
+    [-23.25, 147.80],
+    [-23.40, 147.88],
+    [-23.5167, 147.9333], // Joins Nogoa @ Craigmore
   ],
   // Wolfang Creek - from the west into Sandy Creek
   wolfang: [
@@ -387,50 +395,53 @@ export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
     [-22.8245, 147.6392], // Joins Sandy Creek @ Clermont
   ],
   isaac: [
-    // Isaac River
-    [-22.55, 148.15],
-    [-22.48, 148.25],
-    [-22.4167, 148.3333], // Isaac River @ Yatton
-    [-22.30, 148.45],
+    // Isaac River - independent northern tributary, flows SOUTH into Mackenzie
+    // Connors River joins Isaac before reaching Mackenzie (Wikipedia confirmed)
+    [-21.75, 148.50], // Upper Isaac (headwaters)
+    [-21.95, 148.55],
     [-22.1833, 148.6167], // Isaac River @ Deverill
-    [-22.05, 148.70],
-    [-21.85, 148.85],
-    [-21.75, 148.95],
+    [-22.30, 148.50],
+    [-22.4167, 148.3333], // Isaac River @ Yatton
+    [-22.60, 148.50], // Flows south
+    [-22.80, 148.70],
+    [-23.00, 148.90],
+    [-23.1833, 149.3500], // Joins Mackenzie @ Bingegang
   ],
   nogoa: [
-    // Nogoa River (towards Emerald)
-    [-23.75, 147.65],
+    // Nogoa River - receives Theresa Creek, flows to Mackenzie
+    [-23.75, 147.65], // Upper Nogoa (headwaters)
     [-23.68, 147.72],
     [-23.56, 147.87],
-    [-23.5167, 147.9333], // Nogoa River @ Craigmore
+    [-23.5167, 147.9333], // Nogoa River @ Craigmore (Theresa Creek joins here)
     [-23.48, 148.02],
-    [-23.4500, 148.1000], // Nogoa River @ Duck Ponds
+    [-23.4500, 148.1000], // Nogoa River @ Duck Ponds (below Fairbairn Dam)
     [-23.42, 148.18],
     [-23.40, 148.28],
+    [-23.45, 148.40],
+    [-23.4500, 148.5000], // Joins Mackenzie @ Rileys Crossing
   ],
   mackenzie: [
     // Mackenzie River (Nogoa to Fitzroy)
-    [-23.50, 148.35],
-    [-23.4500, 148.5000], // Mackenzie River @ Rileys Crossing
+    [-23.4500, 148.5000], // Mackenzie River @ Rileys Crossing (Nogoa joins)
     [-23.40, 148.65],
     [-23.3333, 148.8333], // Mackenzie River @ Coolmaringa
     [-23.25, 149.10],
-    [-23.1833, 149.3500], // Mackenzie River @ Bingegang
+    [-23.1833, 149.3500], // Mackenzie River @ Bingegang (Isaac joins)
     [-23.20, 149.55],
-    [-23.25, 149.75],
+    [-23.25, 149.70], // Flows to Fitzroy
   ],
   comet: [
-    // Comet River (no active gauges)
+    // Comet River (joins Mackenzie)
     [-23.92, 148.15],
     [-23.8000, 148.3000],
     [-23.70, 148.42],
     [-23.6000, 148.5500],
     [-23.50, 148.62],
-    [-23.42, 148.70],
+    [-23.40, 148.65], // Joins Mackenzie
   ],
   fitzroy: [
-    // Fitzroy River (to coast)
-    [-23.30, 149.70],
+    // Fitzroy River (Mackenzie confluence to coast)
+    [-23.25, 149.70], // Junction with Mackenzie
     [-23.3833, 149.9167], // Fitzroy River @ The Gap
     [-23.28, 150.12],
     [-23.25, 150.42],

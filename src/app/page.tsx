@@ -229,7 +229,7 @@ export default function DashboardPage() {
                     ? 'Data unavailable - check sources'
                     : waterLevels.sources.includes('error')
                     ? 'API error - refresh to retry'
-                    : `Live data from ${waterLevels.sources.join(' and ')}`
+                    : `Live data from ${waterLevels.sources.filter(s => ['wmip', 'bom'].includes(s)).join(' and ')}`
                 }
                 className={cn(
                   'px-3 py-1 rounded-full text-xs font-medium flex-shrink-0',
@@ -243,7 +243,7 @@ export default function DashboardPage() {
                 ) : waterLevels.sources.includes('error') ? (
                   <span>API ERROR</span>
                 ) : (
-                  <span>LIVE: {waterLevels.sources.map(s => s.toUpperCase()).join(' + ')}</span>
+                  <span>LIVE: {waterLevels.sources.filter(s => ['wmip', 'bom'].includes(s)).map(s => s.toUpperCase()).join(' + ')}</span>
                 )}
               </div>
             )}

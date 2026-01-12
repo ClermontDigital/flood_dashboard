@@ -132,7 +132,10 @@ export const STATUS_LABELS = {
 
 // River system display names
 export const RIVER_SYSTEM_NAMES: Record<RiverSystem, string> = {
-  clermont: 'Clermont Area',
+  clermont: 'Sandy Creek',
+  theresa: 'Theresa Creek',
+  wolfang: 'Wolfang Creek',
+  douglas: 'Douglas Creek',
   isaac: 'Isaac River',
   nogoa: 'Nogoa River',
   mackenzie: 'Mackenzie River',
@@ -142,18 +145,7 @@ export const RIVER_SYSTEM_NAMES: Record<RiverSystem, string> = {
 
 // All gauge stations
 export const GAUGE_STATIONS: GaugeStation[] = [
-  // Clermont Area (1 active + 2 offline)
-  {
-    id: '130212A',
-    name: 'Theresa Creek @ Gregory Hwy',
-    stream: 'Theresa Creek',
-    riverSystem: 'clermont',
-    lat: -22.7833,
-    lng: 147.5667,
-    role: 'Upstream early warning',
-    isOffline: true,
-    lastDataYear: 2024,
-  },
+  // Sandy Creek (Clermont) - Primary monitoring
   {
     id: '130207A',
     name: 'Sandy Creek @ Clermont',
@@ -171,6 +163,37 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -22.9000,
     lng: 147.7000,
     role: 'Secondary monitoring',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
+
+  // Theresa Creek - Upstream of Clermont
+  {
+    id: '130210A',
+    name: 'Theresa Creek @ Valeria',
+    stream: 'Theresa Creek',
+    riverSystem: 'theresa',
+    lat: -23.0833,
+    lng: 147.4167,
+    role: 'Far upstream early warning',
+  },
+  {
+    id: '130206A',
+    name: 'Theresa Creek @ Gregory Hwy',
+    stream: 'Theresa Creek',
+    riverSystem: 'theresa',
+    lat: -22.9740,
+    lng: 147.5577,
+    role: 'Upstream early warning',
+  },
+  {
+    id: '130212A',
+    name: 'Theresa Creek @ Gregory Hwy (Old)',
+    stream: 'Theresa Creek',
+    riverSystem: 'theresa',
+    lat: -22.7833,
+    lng: 147.5667,
+    role: 'Decommissioned gauge',
     isOffline: true,
     lastDataYear: 2024,
   },
@@ -332,15 +355,36 @@ export const QUICK_LINKS = [
 
 // Extended river paths for map overlay (with additional waypoints for better visibility)
 export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
+  // Sandy Creek - through Clermont and downstream
   clermont: [
-    // Sandy Creek area
-    [-22.65, 147.45],
-    [-22.72, 147.52],
-    [-22.80, 147.60],
+    [-22.87, 147.60], // Junction with Theresa Creek
     [-22.8245, 147.6392], // Sandy Creek @ Clermont
-    [-22.86, 147.68],
-    [-22.95, 147.75],
-    [-23.00, 147.82],
+    [-22.78, 147.68],
+    [-22.72, 147.72],
+    [-22.65, 147.78],
+  ],
+  // Theresa Creek - upstream feeding into Sandy Creek
+  theresa: [
+    [-23.0833, 147.4167], // Theresa Creek @ Valeria (far upstream)
+    [-23.02, 147.48],
+    [-22.9740, 147.5577], // Theresa Creek @ Gregory Hwy
+    [-22.92, 147.58],
+    [-22.87, 147.60], // Joins Sandy Creek
+    [-22.8245, 147.6392], // Sandy Creek @ Clermont
+  ],
+  // Wolfang Creek - from the west into Sandy Creek
+  wolfang: [
+    [-22.95, 147.35], // Upper Wolfang Creek (west)
+    [-22.90, 147.42],
+    [-22.87, 147.50],
+    [-22.85, 147.56],
+    [-22.8245, 147.6392], // Joins Sandy Creek @ Clermont
+  ],
+  // Douglas Creek - from the south into Sandy Creek
+  douglas: [
+    [-22.95, 147.60], // Upper Douglas Creek (south)
+    [-22.90, 147.62],
+    [-22.8245, 147.6392], // Joins Sandy Creek @ Clermont
   ],
   isaac: [
     // Isaac River

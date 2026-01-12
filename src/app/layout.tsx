@@ -11,14 +11,6 @@ export const metadata: Metadata = {
     description: 'Real-time water level monitoring and flood warnings for Clermont, QLD and the Fitzroy Basin region',
     url: 'https://gauge.clermont.digital',
     siteName: 'Gauge',
-    images: [
-      {
-        url: '/logo.png',
-        width: 512,
-        height: 512,
-        alt: 'Gauge - Clermont Flood Tracking Logo',
-      },
-    ],
     locale: 'en_AU',
     type: 'website',
   },
@@ -26,7 +18,6 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Gauge - Clermont Flood Tracking',
     description: 'Real-time water level monitoring and flood warnings for Clermont, QLD and the Fitzroy Basin region',
-    images: ['/logo.png'],
   },
 }
 

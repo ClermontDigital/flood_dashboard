@@ -7,6 +7,9 @@ export type Trend = 'rising' | 'falling' | 'stable'
 // River systems in the Fitzroy Basin
 export type RiverSystem =
   | 'clermont'
+  | 'theresa'
+  | 'wolfang'
+  | 'douglas'
   | 'isaac'
   | 'nogoa'
   | 'mackenzie'

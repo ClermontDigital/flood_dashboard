@@ -13,10 +13,13 @@ interface BasinOverviewProps {
 }
 
 // Group gauges by river system for the basin view
-const RIVER_ORDER: RiverSystem[] = ['clermont', 'isaac', 'nogoa', 'mackenzie', 'comet', 'fitzroy']
+const RIVER_ORDER: RiverSystem[] = ['clermont', 'theresa', 'wolfang', 'douglas', 'isaac', 'nogoa', 'mackenzie', 'comet', 'fitzroy']
 
 const RIVER_LABELS: Record<RiverSystem, string> = {
-  clermont: 'Clermont',
+  clermont: 'Sandy Creek',
+  theresa: 'Theresa Creek',
+  wolfang: 'Wolfang Creek',
+  douglas: 'Douglas Creek',
   isaac: 'Isaac River',
   nogoa: 'Nogoa River',
   mackenzie: 'Mackenzie River',

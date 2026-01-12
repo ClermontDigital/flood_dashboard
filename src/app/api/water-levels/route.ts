@@ -18,9 +18,28 @@ import {
   fetchAllBOMDamStorage,
 } from '@/lib/data-sources'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
+import { DataCache } from '@/lib/cache'
 
 // Cache configuration - revalidate every 5 minutes
 export const revalidate = 300
+
+// Type for cached water level data
+interface CachedWaterData {
+  waterLevelMap: Map<string, WaterLevel>
+  dischargeMap: Map<string, DischargeReading>
+  rainfallMap: Map<string, RainfallReading>
+  damStorage: DamStorageReading[]
+  sources: string[]
+}
+
+// Typed cache instance for water levels
+// Uses stale-while-revalidate: returns cached data fast, refreshes in background
+// Shorter TTL during flood conditions (1 min) vs normal (3 min)
+const waterLevelsCache = new DataCache<CachedWaterData>('water-levels', {
+  normalTTL: 3 * 60 * 1000,      // 3 minutes normally
+  elevatedTTL: 60 * 1000,        // 1 minute during flood conditions
+  staleThreshold: 2 * 60 * 1000, // Refresh after 2 minutes
+})
 
 // Known flood thresholds for gauges
 const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
@@ -36,24 +55,18 @@ const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse<WaterLevelsResponse>> {
-  // Apply rate limiting
-  const clientIp = getClientIp(request)
-  const rateLimitResult = checkRateLimit(clientIp)
-  if (!rateLimitResult.success) {
-    return rateLimitExceededResponse(rateLimitResult) as NextResponse<WaterLevelsResponse>
-  }
-
+/**
+ * Fetch all water level data from sources (WMIP primary, BOM fallback)
+ * This function is called by the cache when data needs to be refreshed
+ */
+async function fetchWaterLevelData(): Promise<CachedWaterData> {
   const gaugeIds = GAUGE_STATIONS.map((station) => station.id)
   const sources: string[] = []
-
   let waterLevelMap = new Map<string, WaterLevel>()
-  let useMockData = false
 
   console.log('[API] Fetching water levels for', gaugeIds.length, 'gauges')
 
   // Helper to check if data is fresh (within last 48 hours)
-  // 48h allows for data updates that may be delayed during weekends/holidays
   const isDataFresh = (timestamp: string): boolean => {
     const dataTime = new Date(timestamp).getTime()
     const now = Date.now()
@@ -77,7 +90,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
         waterLevelMap.set(gaugeId, enrichedData)
         wmipSuccessCount++
 
-        // Log high water levels
         if (result.data.level > 3) {
           console.log(`[API] WMIP high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
         }
@@ -127,13 +139,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
       }
     }
 
-    // Log missing gauges (gauges with no fresh data from any source)
+    // Log missing gauges
     const stillMissingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
     if (stillMissingGaugeIds.length > 0) {
       console.log(`[API] No fresh data for ${stillMissingGaugeIds.length} gauges:`, stillMissingGaugeIds.join(', '))
     }
 
-    // Log if no data available
     if (waterLevelMap.size === 0) {
       console.warn('[API] No data available from any source')
       sources.push('unavailable')
@@ -165,6 +176,57 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
     console.error('[API] Error fetching extended data:', error)
   }
 
+  return {
+    waterLevelMap,
+    dischargeMap,
+    rainfallMap,
+    damStorage,
+    sources,
+  }
+}
+
+/**
+ * Check if any gauge has elevated water levels (for cache TTL adjustment)
+ * Uses shorter cache TTL during elevated conditions for fresher data
+ */
+function checkElevatedWaterLevels(data: CachedWaterData): boolean {
+  for (const [, reading] of data.waterLevelMap) {
+    // 'watch' = approaching minor flood, 'warning' = moderate flood, 'danger' = major flood
+    if (reading.status === 'watch' || reading.status === 'warning' || reading.status === 'danger') {
+      return true
+    }
+  }
+  return false
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse<WaterLevelsResponse>> {
+  // Apply rate limiting
+  const clientIp = getClientIp(request)
+  const rateLimitResult = checkRateLimit(clientIp)
+  if (!rateLimitResult.success) {
+    return rateLimitExceededResponse(rateLimitResult) as NextResponse<WaterLevelsResponse>
+  }
+
+  // Use stale-while-revalidate caching pattern
+  // Returns cached data immediately for fast page loads
+  // Refreshes in background when cache is stale (after 2 min)
+  // Uses shorter TTL (1 min) during flood conditions vs normal (3 min)
+  const cacheStats = waterLevelsCache.getStats()
+  console.log(`[API] Cache stats before fetch: ${cacheStats ? `age=${Math.round(cacheStats.age/1000)}s, elevated=${cacheStats.isElevated}, ttl=${cacheStats.ttl/1000}s` : 'EMPTY'}`)
+
+  const { data: cachedData, fromCache, age } = await waterLevelsCache.getOrFetch(
+    fetchWaterLevelData,
+    checkElevatedWaterLevels
+  )
+  console.log(`[API] Cache result: fromCache=${fromCache}, age=${Math.round(age/1000)}s`)
+
+  const { waterLevelMap, dischargeMap, rainfallMap, damStorage, sources } = cachedData
+
+  // Add cache info to logs
+  if (fromCache) {
+    console.log(`[API] Serving from cache (age: ${Math.round(age / 1000)}s)`)
+  }
+
   console.log(`[API] Response: ${waterLevelMap.size} gauges, sources: ${sources.join(', ')}`)
 
   // Build response
@@ -179,13 +241,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
   const response: WaterLevelsResponse = {
     timestamp: new Date().toISOString(),
     gauges,
-    sources,
+    sources: fromCache ? [...sources, 'cached'] : sources,
     damStorage: damStorage.length > 0 ? damStorage : undefined,
   }
 
   return NextResponse.json(response, {
     headers: {
       'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
+      'X-Cache-Age': String(Math.round(age / 1000)),
+      'X-Cache-Status': fromCache ? 'HIT' : 'MISS',
     },
   })
 }

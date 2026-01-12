@@ -1,4 +1,4 @@
-import type { GaugeStation, RiverSystem, CameraStation } from './types'
+import type { GaugeStation, RiverSystem, CameraStation, DamStation } from './types'
 import { env } from './env'
 
 // Clermont coordinates
@@ -14,6 +14,28 @@ export const STALE_DATA_THRESHOLD = env.staleThreshold
 export const WMIP_BASE_URL = env.wmipBaseUrl
 export const BOM_WATERDATA_URL = env.bomWaterdataUrl
 export const BOM_WARNINGS_URL = env.bomWarningsUrl
+
+// BOM Water Data parameters for SOS2 API
+export const BOM_PARAMS = {
+  WATER_COURSE_LEVEL: 'Water Course Level',
+  WATER_COURSE_DISCHARGE: 'Water Course Discharge',
+  STORAGE_LEVEL: 'Storage Level',
+  STORAGE_VOLUME: 'Storage Volume',
+  RAINFALL: 'Rainfall',
+} as const
+
+// Dam stations in the Fitzroy Basin
+export const DAM_STATIONS: DamStation[] = [
+  {
+    id: '130216A',
+    name: 'Fairbairn Dam',
+    river: 'Nogoa River',
+    riverSystem: 'nogoa',
+    lat: -23.4600,
+    lng: 148.0800,
+    capacity: 1301000, // 1,301,000 ML total capacity
+  },
+]
 
 // Application name
 export const APP_NAME = 'GAUGE'

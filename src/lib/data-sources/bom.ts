@@ -8,8 +8,8 @@
  * Documentation: http://www.bom.gov.au/waterdata/
  */
 
-import type { WaterLevel, Trend, FloodStatus, HistoryPoint } from '../types'
-import { BOM_WATERDATA_URL, GAUGE_STATIONS } from '../constants'
+import type { WaterLevel, Trend, FloodStatus, HistoryPoint, DischargeReading, DamStorageReading, RainfallReading } from '../types'
+import { BOM_WATERDATA_URL, GAUGE_STATIONS, DAM_STATIONS, BOM_PARAMS } from '../constants'
 
 // Response types for API consumers
 export interface BOMWaterResponse {
@@ -66,17 +66,20 @@ const GAUGE_TO_BOM_FEATURE: Record<string, string> = {
 }
 
 // BOM observed property for water level
-const WATER_LEVEL_PROPERTY = 'http://bom.gov.au/waterdata/services/parameters/Water_Course_Level'
+// Note: BOM uses spaces in the parameter name, but we filter client-side instead
+// because URL encoding issues can cause empty responses
+const WATER_LEVEL_PROPERTY = ''  // Empty - we'll get all data and filter client-side
 
 /**
  * Build a SOS2 GetObservation request URL
+ * BOM only supports WaterML 2.0 format (not JSON)
  */
 function buildSOS2Url(params: Partial<SOS2Request>): string {
   const baseParams: SOS2Request = {
     service: 'SOS',
     version: '2.0',
     request: 'GetObservation',
-    responseFormat: 'application/json',
+    responseFormat: 'http://www.opengis.net/waterml/2.0',
     ...params,
   }
 
@@ -216,24 +219,84 @@ function determineStatus(level: number): FloodStatus {
 }
 
 /**
+ * Parse WaterML 2.0 XML response into observations
+ * BOM returns XML with OM_Observation blocks containing different parameters
+ * We need to find Water Course Level observations with actual (non-nil) values
+ */
+function parseWaterML2Response(xml: string, gaugeId: string): BOMObservation[] {
+  const observations: BOMObservation[] = []
+
+  try {
+    // Split XML into individual OM_Observation blocks
+    const obsPattern = /<om:OM_Observation[^>]*>[\s\S]*?<\/om:OM_Observation>/gi
+    const obsBlocks = xml.match(obsPattern) || []
+
+    for (const block of obsBlocks) {
+      // Check if this observation is for Water Course Level
+      if (!block.includes('Water Course Level')) {
+        continue
+      }
+
+      // Extract unit (default to m)
+      const unitMatch = block.match(/uom\s+code="([^"]+)"/i)
+      const unit = unitMatch ? unitMatch[1] : 'm'
+
+      // Find all MeasurementTVP points with actual values (not nil)
+      // Match time and value separately to handle different formats
+      const tvpPattern = /<wml2:MeasurementTVP>([\s\S]*?)<\/wml2:MeasurementTVP>/gi
+      let tvpMatch
+
+      while ((tvpMatch = tvpPattern.exec(block)) !== null) {
+        const tvpContent = tvpMatch[1]
+
+        // Extract time
+        const timeMatch = tvpContent.match(/<wml2:time>([^<]+)<\/wml2:time>/i)
+        if (!timeMatch) continue
+
+        // Check for non-nil value (value tag that has content and doesn't have nil attribute)
+        // Nil values look like: <wml2:value xsi:nil="true"/>
+        // Real values look like: <wml2:value>0.279</wml2:value>
+        const valueMatch = tvpContent.match(/<wml2:value>([^<]+)<\/wml2:value>/i)
+        if (!valueMatch) continue
+
+        const timeStr = timeMatch[1]
+        const valueStr = valueMatch[1]
+        const value = parseFloat(valueStr)
+
+        if (!isNaN(value)) {
+          observations.push({
+            gaugeId,
+            timestamp: new Date(timeStr).toISOString(),
+            value,
+            unit,
+          })
+        }
+      }
+    }
+
+    console.log(`[BOM] Parsed ${observations.length} observations for gauge ${gaugeId}`)
+  } catch (error) {
+    console.error('[BOM] Error parsing WaterML2 response:', error)
+  }
+
+  return observations
+}
+
+/**
  * Fetch water level data for a specific gauge from BOM
  * Returns null if unavailable (graceful degradation)
  */
 export async function fetchBOMWaterLevel(gaugeId: string): Promise<WaterLevel | null> {
-  const featureOfInterest = GAUGE_TO_BOM_FEATURE[gaugeId] || gaugeId
+  const featureOfInterest = GAUGE_TO_BOM_FEATURE[gaugeId] || `http://bom.gov.au/waterdata/services/stations/${gaugeId}`
 
   try {
-    // Request last 2 hours of data for trend calculation
-    const now = new Date()
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000)
-
-    const temporalFilter = `om:phenomenonTime,${twoHoursAgo.toISOString()}/${now.toISOString()}`
-
+    // Build URL for water level data
+    // Don't include observedProperty - we filter client-side for Water Course Level
     const url = buildSOS2Url({
       featureOfInterest,
-      observedProperty: WATER_LEVEL_PROPERTY,
-      temporalFilter,
     })
+
+    console.log(`[BOM] Fetching ${gaugeId} from: ${url.substring(0, 100)}...`)
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s timeout
@@ -241,7 +304,7 @@ export async function fetchBOMWaterLevel(gaugeId: string): Promise<WaterLevel | 
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        'Accept': 'application/json',
+        'Accept': 'application/xml',
       },
     })
 
@@ -252,8 +315,9 @@ export async function fetchBOMWaterLevel(gaugeId: string): Promise<WaterLevel | 
       return null
     }
 
-    const data = await response.json()
-    const observations = parseSOS2Response(data, gaugeId)
+    // BOM returns XML, not JSON
+    const xml = await response.text()
+    const observations = parseWaterML2Response(xml, gaugeId)
 
     if (observations.length === 0) {
       console.warn(`[BOM] No observations found for gauge ${gaugeId}`)
@@ -388,7 +452,6 @@ export async function fetchBOMHistory(
 
     const url = buildSOS2Url({
       featureOfInterest,
-      observedProperty: WATER_LEVEL_PROPERTY,
       temporalFilter,
     })
 
@@ -466,6 +529,315 @@ export async function checkBOMServiceStatus(): Promise<boolean> {
   }
 }
 
+/**
+ * Generic function to parse a specific parameter from WaterML2 XML response
+ */
+function parseWaterML2Parameter(xml: string, gaugeId: string, parameterName: string): BOMObservation[] {
+  const observations: BOMObservation[] = []
+
+  try {
+    // Split XML into individual OM_Observation blocks
+    const obsPattern = /<om:OM_Observation[^>]*>[\s\S]*?<\/om:OM_Observation>/gi
+    const obsBlocks = xml.match(obsPattern) || []
+
+    for (const block of obsBlocks) {
+      // Check if this observation is for the requested parameter
+      if (!block.includes(parameterName)) {
+        continue
+      }
+
+      // Extract unit
+      const unitMatch = block.match(/uom\s+code="([^"]+)"/i)
+      const unit = unitMatch ? unitMatch[1] : ''
+
+      // Find all MeasurementTVP points with actual values
+      const tvpPattern = /<wml2:MeasurementTVP>([\s\S]*?)<\/wml2:MeasurementTVP>/gi
+      let tvpMatch
+
+      while ((tvpMatch = tvpPattern.exec(block)) !== null) {
+        const tvpContent = tvpMatch[1]
+
+        const timeMatch = tvpContent.match(/<wml2:time>([^<]+)<\/wml2:time>/i)
+        if (!timeMatch) continue
+
+        const valueMatch = tvpContent.match(/<wml2:value>([^<]+)<\/wml2:value>/i)
+        if (!valueMatch) continue
+
+        const value = parseFloat(valueMatch[1])
+
+        if (!isNaN(value)) {
+          observations.push({
+            gaugeId,
+            timestamp: new Date(timeMatch[1]).toISOString(),
+            value,
+            unit,
+          })
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`[BOM] Error parsing ${parameterName} response:`, error)
+  }
+
+  return observations
+}
+
+/**
+ * Fetch discharge (flow) data for a gauge from BOM
+ */
+export async function fetchBOMDischarge(gaugeId: string): Promise<DischargeReading | null> {
+  const featureOfInterest = `http://bom.gov.au/waterdata/services/stations/${gaugeId}`
+
+  try {
+    const url = buildSOS2Url({
+      featureOfInterest,
+      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.WATER_COURSE_DISCHARGE)}`,
+    })
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/xml' },
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      return null
+    }
+
+    const xml = await response.text()
+    const observations = parseWaterML2Parameter(xml, gaugeId, BOM_PARAMS.WATER_COURSE_DISCHARGE)
+
+    if (observations.length === 0) {
+      return null
+    }
+
+    // Get most recent observation
+    const sorted = observations.sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+    const latest = sorted[0]
+
+    // Determine unit - BOM returns 'cumec' or 'Ml/d'
+    const unit: 'ML/d' | 'cumec' = latest.unit === 'cumec' ? 'cumec' : 'ML/d'
+
+    return {
+      gaugeId,
+      value: latest.value,
+      unit,
+      timestamp: latest.timestamp,
+      source: 'bom',
+    }
+  } catch (error) {
+    console.error(`[BOM] Error fetching discharge for ${gaugeId}:`, error)
+    return null
+  }
+}
+
+/**
+ * Fetch dam storage data from BOM
+ */
+export async function fetchBOMDamStorage(stationId: string): Promise<DamStorageReading | null> {
+  const featureOfInterest = `http://bom.gov.au/waterdata/services/stations/${stationId}`
+  const damStation = DAM_STATIONS.find(d => d.id === stationId)
+
+  if (!damStation) {
+    console.warn(`[BOM] Unknown dam station: ${stationId}`)
+    return null
+  }
+
+  try {
+    // Fetch storage volume
+    const volumeUrl = buildSOS2Url({
+      featureOfInterest,
+      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.STORAGE_VOLUME)}`,
+    })
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+
+    const volumeResponse = await fetch(volumeUrl, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/xml' },
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!volumeResponse.ok) {
+      return null
+    }
+
+    const volumeXml = await volumeResponse.text()
+    const volumeObs = parseWaterML2Parameter(volumeXml, stationId, BOM_PARAMS.STORAGE_VOLUME)
+
+    // Fetch storage level
+    const levelUrl = buildSOS2Url({
+      featureOfInterest,
+      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.STORAGE_LEVEL)}`,
+    })
+
+    const levelController = new AbortController()
+    const levelTimeoutId = setTimeout(() => levelController.abort(), 15000)
+
+    const levelResponse = await fetch(levelUrl, {
+      signal: levelController.signal,
+      headers: { 'Accept': 'application/xml' },
+    })
+
+    clearTimeout(levelTimeoutId)
+
+    let levelObs: BOMObservation[] = []
+    if (levelResponse.ok) {
+      const levelXml = await levelResponse.text()
+      levelObs = parseWaterML2Parameter(levelXml, stationId, BOM_PARAMS.STORAGE_LEVEL)
+    }
+
+    // Get most recent values
+    const latestVolume = volumeObs.length > 0
+      ? volumeObs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0]
+      : null
+
+    const latestLevel = levelObs.length > 0
+      ? levelObs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0]
+      : null
+
+    if (!latestVolume) {
+      return null
+    }
+
+    // Calculate percent full if capacity is known
+    const percentFull = damStation.capacity
+      ? Math.round((latestVolume.value / damStation.capacity) * 100 * 10) / 10
+      : undefined
+
+    return {
+      stationId,
+      name: damStation.name,
+      volume: latestVolume.value,
+      volumeUnit: 'ML',
+      level: latestLevel?.value ?? 0,
+      levelUnit: 'm',
+      percentFull,
+      timestamp: latestVolume.timestamp,
+      source: 'bom',
+    }
+  } catch (error) {
+    console.error(`[BOM] Error fetching dam storage for ${stationId}:`, error)
+    return null
+  }
+}
+
+/**
+ * Fetch all dam storage readings
+ */
+export async function fetchAllBOMDamStorage(): Promise<DamStorageReading[]> {
+  const results: DamStorageReading[] = []
+
+  for (const dam of DAM_STATIONS) {
+    const reading = await fetchBOMDamStorage(dam.id)
+    if (reading) {
+      results.push(reading)
+    }
+  }
+
+  return results
+}
+
+/**
+ * Fetch rainfall data for a gauge from BOM
+ */
+export async function fetchBOMRainfall(gaugeId: string): Promise<RainfallReading | null> {
+  const featureOfInterest = `http://bom.gov.au/waterdata/services/stations/${gaugeId}`
+
+  try {
+    const url = buildSOS2Url({
+      featureOfInterest,
+      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.RAINFALL)}`,
+    })
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/xml' },
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      return null
+    }
+
+    const xml = await response.text()
+    const observations = parseWaterML2Parameter(xml, gaugeId, BOM_PARAMS.RAINFALL)
+
+    if (observations.length === 0) {
+      return null
+    }
+
+    // Get most recent observation
+    const sorted = observations.sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+    const latest = sorted[0]
+
+    // Check if this is daily or hourly data based on procedure type in response
+    // Daily total is typically indicated by 'DailyTotal' in the procedure name
+    const period: 'daily' | 'hourly' = xml.includes('DailyTotal') ? 'daily' : 'hourly'
+
+    return {
+      gaugeId,
+      value: latest.value,
+      unit: 'mm',
+      period,
+      timestamp: latest.timestamp,
+      source: 'bom',
+    }
+  } catch (error) {
+    console.error(`[BOM] Error fetching rainfall for ${gaugeId}:`, error)
+    return null
+  }
+}
+
+/**
+ * Fetch discharge and rainfall for multiple gauges
+ */
+export async function fetchBOMExtendedData(gaugeIds: string[]): Promise<{
+  discharge: Map<string, DischargeReading>
+  rainfall: Map<string, RainfallReading>
+}> {
+  const discharge = new Map<string, DischargeReading>()
+  const rainfall = new Map<string, RainfallReading>()
+
+  // Fetch in parallel with concurrency limit
+  const batchSize = 5
+  for (let i = 0; i < gaugeIds.length; i += batchSize) {
+    const batch = gaugeIds.slice(i, i + batchSize)
+
+    await Promise.all(
+      batch.map(async (gaugeId) => {
+        const [dischargeData, rainfallData] = await Promise.all([
+          fetchBOMDischarge(gaugeId),
+          fetchBOMRainfall(gaugeId),
+        ])
+
+        if (dischargeData) {
+          discharge.set(gaugeId, dischargeData)
+        }
+        if (rainfallData) {
+          rainfall.set(gaugeId, rainfallData)
+        }
+      })
+    )
+  }
+
+  return { discharge, rainfall }
+}
+
 const bomClient = {
   fetchBOMWaterLevel,
   fetchBOMWaterLevelResponse,
@@ -475,6 +847,11 @@ const bomClient = {
   fetchBOMHistory,
   fetchBOMHistoryResponse,
   checkBOMServiceStatus,
+  fetchBOMDischarge,
+  fetchBOMDamStorage,
+  fetchAllBOMDamStorage,
+  fetchBOMRainfall,
+  fetchBOMExtendedData,
 }
 
 export default bomClient

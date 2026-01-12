@@ -36,11 +36,56 @@ export interface WaterLevel {
   source: 'wmip' | 'bom'
 }
 
+// Discharge/flow reading
+export interface DischargeReading {
+  gaugeId: string
+  value: number
+  unit: 'ML/d' | 'cumec' // Megalitres per day or cubic meters per second
+  timestamp: string
+  source: 'bom'
+}
+
+// Dam storage reading
+export interface DamStorageReading {
+  stationId: string
+  name: string
+  volume: number // ML
+  volumeUnit: 'ML'
+  level: number // m (elevation)
+  levelUnit: 'm'
+  percentFull?: number // calculated if capacity known
+  timestamp: string
+  source: 'bom'
+}
+
+// Rainfall reading at gauge
+export interface RainfallReading {
+  gaugeId: string
+  value: number
+  unit: 'mm'
+  period: 'daily' | 'hourly'
+  timestamp: string
+  source: 'bom'
+}
+
+// Dam station configuration
+export interface DamStation {
+  id: string
+  name: string
+  river: string
+  riverSystem: RiverSystem
+  lat: number
+  lng: number
+  capacity?: number // ML - total storage capacity
+}
+
 // Combined gauge data for display
 export interface GaugeData {
   station: GaugeStation
   reading: WaterLevel | null
   thresholds: FloodThresholds | null
+  discharge?: DischargeReading | null
+  rainfall?: RainfallReading | null
 }
 
 // Flood thresholds for a gauge
@@ -75,6 +120,7 @@ export interface WaterLevelsResponse {
   timestamp: string
   gauges: GaugeData[]
   sources: string[]
+  damStorage?: DamStorageReading[]
 }
 
 export interface PredictionsResponse {

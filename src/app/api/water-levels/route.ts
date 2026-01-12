@@ -7,15 +7,17 @@
  * Responses are cached for 5 minutes.
  */
 
-import { NextResponse } from 'next/server'
-import type { WaterLevelsResponse, GaugeData, WaterLevel, FloodThresholds } from '@/lib/types'
+import { NextResponse, NextRequest } from 'next/server'
+import type { WaterLevelsResponse, GaugeData, WaterLevel, FloodThresholds, DischargeReading, RainfallReading, DamStorageReading } from '@/lib/types'
 import { GAUGE_STATIONS } from '@/lib/constants'
-import { generateMockWaterLevel, calculateStatus, calculateTrend } from '@/lib/utils'
+import { calculateStatus } from '@/lib/utils'
 import {
   fetchWMIPMultipleGauges,
   fetchBOMMultipleGauges,
-  fetchWMIPThresholds,
+  fetchBOMExtendedData,
+  fetchAllBOMDamStorage,
 } from '@/lib/data-sources'
+import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
 
 // Cache configuration - revalidate every 5 minutes
 export const revalidate = 300
@@ -41,7 +43,14 @@ const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
 }
 
-export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
+export async function GET(request: NextRequest): Promise<NextResponse<WaterLevelsResponse>> {
+  // Apply rate limiting
+  const clientIp = getClientIp(request)
+  const rateLimitResult = checkRateLimit(clientIp)
+  if (!rateLimitResult.success) {
+    return rateLimitExceededResponse(rateLimitResult) as NextResponse<WaterLevelsResponse>
+  }
+
   const gaugeIds = GAUGE_STATIONS.map((station) => station.id)
   const sources: string[] = []
 
@@ -50,11 +59,12 @@ export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
 
   console.log('[API] Fetching water levels for', gaugeIds.length, 'gauges')
 
-  // Helper to check if data is fresh (within last 24 hours)
+  // Helper to check if data is fresh (within last 48 hours)
+  // 48h allows for data updates that may be delayed during weekends/holidays
   const isDataFresh = (timestamp: string): boolean => {
     const dataTime = new Date(timestamp).getTime()
     const now = Date.now()
-    const maxAge = 24 * 60 * 60 * 1000 // 24 hours
+    const maxAge = 48 * 60 * 60 * 1000 // 48 hours
     return (now - dataTime) < maxAge && dataTime <= now
   }
 
@@ -130,27 +140,36 @@ export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
       console.log(`[API] No fresh data for ${stillMissingGaugeIds.length} gauges:`, stillMissingGaugeIds.join(', '))
     }
 
-    // If no data from any source, use mock data
+    // Log if no data available
     if (waterLevelMap.size === 0) {
-      useMockData = true
+      console.warn('[API] No data available from any source')
+      sources.push('unavailable')
     }
   } catch (error) {
     console.error('Error fetching water levels:', error)
-    useMockData = true
+    sources.push('error')
   }
 
-  // Generate mock data if needed
-  if (useMockData) {
-    console.log('[API] Using mock data - no API data available')
-    sources.length = 0
-    sources.push('mock')
+  // Fetch extended data (discharge, rainfall) and dam storage in parallel
+  let dischargeMap = new Map<string, DischargeReading>()
+  let rainfallMap = new Map<string, RainfallReading>()
+  let damStorage: DamStorageReading[] = []
 
-    for (const station of GAUGE_STATIONS) {
-      const mockLevel = generateMockWaterLevel(station.id)
-      const thresholds = FLOOD_THRESHOLDS[station.id] || null
-      mockLevel.status = calculateStatus(mockLevel.level, thresholds)
-      waterLevelMap.set(station.id, mockLevel)
-    }
+  try {
+    console.log('[API] Fetching extended data (discharge, rainfall, dam storage)...')
+
+    const [extendedData, damStorageData] = await Promise.all([
+      fetchBOMExtendedData(gaugeIds),
+      fetchAllBOMDamStorage(),
+    ])
+
+    dischargeMap = extendedData.discharge
+    rainfallMap = extendedData.rainfall
+    damStorage = damStorageData
+
+    console.log(`[API] Extended data: ${dischargeMap.size} discharge, ${rainfallMap.size} rainfall, ${damStorage.length} dam storage readings`)
+  } catch (error) {
+    console.error('[API] Error fetching extended data:', error)
   }
 
   console.log(`[API] Response: ${waterLevelMap.size} gauges, sources: ${sources.join(', ')}`)
@@ -160,12 +179,15 @@ export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
     station,
     reading: waterLevelMap.get(station.id) || null,
     thresholds: FLOOD_THRESHOLDS[station.id] || null,
+    discharge: dischargeMap.get(station.id) || null,
+    rainfall: rainfallMap.get(station.id) || null,
   }))
 
   const response: WaterLevelsResponse = {
     timestamp: new Date().toISOString(),
     gauges,
     sources,
+    damStorage: damStorage.length > 0 ? damStorage : undefined,
   }
 
   return NextResponse.json(response, {

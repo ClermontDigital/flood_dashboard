@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
 import L from 'leaflet'
-import type { GaugeData, FloodStatus, RiverSystem, CameraStation } from '@/lib/types'
-import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES, CAMERA_STATIONS, WMIP_BASE_URL } from '@/lib/constants'
+import type { GaugeData, FloodStatus, RiverSystem } from '@/lib/types'
+import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES } from '@/lib/constants'
 import { cn, formatLevel, getTrendArrow, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Fix Leaflet default icon issue with Next.js
@@ -104,33 +104,6 @@ function createLocationIcon(): L.DivIcon {
   })
 }
 
-// Create camera icon marker
-function createCameraIcon(): L.DivIcon {
-  return L.divIcon({
-    className: 'camera-marker',
-    html: `
-      <div style="
-        width: 28px;
-        height: 28px;
-        background-color: #6366f1;
-        border: 2px solid white;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      ">
-        <svg viewBox="0 0 24 24" fill="white" style="width: 16px; height: 16px;">
-          <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-        </svg>
-      </div>
-    `,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -14],
-  })
-}
-
 // Component to handle map view changes
 function MapController({ center, selectedGaugeId, gauges, searchedLocation }: {
   center?: [number, number]
@@ -206,8 +179,6 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
 
   const currentLayerConfig = MAP_LAYERS[mapLayer]
   const locationIcon = useMemo(() => createLocationIcon(), [])
-  const cameraIcon = useMemo(() => createCameraIcon(), [])
-  const [showCameras, setShowCameras] = useState(true)
 
   // Memoize icons to prevent recreation on each render
   const icons = useMemo(() => {
@@ -225,25 +196,6 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
 
   return (
     <div className="relative w-full h-full">
-      {/* Map controls */}
-      <div className="absolute top-2 right-2 z-[1000] flex flex-col gap-2">
-        {/* Camera toggle */}
-        <button
-          onClick={() => setShowCameras(!showCameras)}
-          className={cn(
-            'px-3 py-2 text-xs font-medium rounded-lg shadow-md transition-colors flex items-center gap-2',
-            showCameras
-              ? 'bg-indigo-600 text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-100'
-          )}
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-          </svg>
-          Cameras
-        </button>
-      </div>
-
       <MapContainer
         center={mapCenter}
         zoom={DEFAULT_ZOOM}
@@ -281,15 +233,12 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
         {(Object.entries(RIVER_PATHS) as [RiverSystem, [number, number][]][]).map(([riverSystem, path]) => {
           // Find the worst status for this river system
           const riverGauges = gauges.filter(g => g.station.riverSystem === riverSystem)
-          let worstStatus: FloodStatus = 'safe'
           const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3 }
 
-          riverGauges.forEach(gauge => {
+          const worstStatus = riverGauges.reduce<FloodStatus>((worst, gauge) => {
             const status = gauge.reading?.status || 'safe'
-            if (statusPriority[status] < statusPriority[worstStatus]) {
-              worstStatus = status
-            }
-          })
+            return statusPriority[status] < statusPriority[worst] ? status : worst
+          }, 'safe')
 
           const color = STATUS_COLORS[worstStatus]
           // Enhanced river visibility - thicker lines that are easier to see
@@ -453,65 +402,6 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
           )
         })}
 
-        {/* Camera markers */}
-        {showCameras && CAMERA_STATIONS.map((camera) => (
-          <Marker
-            key={camera.id}
-            position={[camera.lat, camera.lng]}
-            icon={cameraIcon}
-          >
-            <Popup>
-              <div className="min-w-[250px] p-1">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <svg viewBox="0 0 24 24" fill="#6366f1" className="w-5 h-5">
-                      <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 text-sm">
-                      {camera.name}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {camera.description}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Camera location indicator */}
-                <div className="bg-gray-100 rounded-lg p-3 mb-3">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    <span>Camera location marked</span>
-                  </div>
-                  {camera.riverSystem && (
-                    <p className="text-xs text-indigo-600 mt-1 ml-6">
-                      {RIVER_SYSTEM_NAMES[camera.riverSystem]}
-                    </p>
-                  )}
-                </div>
-
-                {/* Link to QLD Traffic */}
-                <a
-                  href="https://qldtraffic.qld.gov.au/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block w-full py-2 px-3 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors text-center mb-2"
-                >
-                  View Cameras on QLD Traffic
-                </a>
-
-                {/* Source attribution */}
-                <p className="text-xs text-gray-400 text-center">
-                  Source: {camera.source === 'tmr' ? 'QLD Transport & Main Roads' : camera.source === 'council' ? 'Local Council' : 'Bureau of Meteorology'}
-                </p>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
       </MapContainer>
     </div>
   )

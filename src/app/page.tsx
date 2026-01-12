@@ -3,8 +3,9 @@
 import { useState, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import useSWR from 'swr'
-import { CLERMONT_CENTER, STATUS_LABELS, EMERGENCY_RESOURCES, REFRESH_INTERVAL, DATA_SOURCES, APP_NAME, APP_TAGLINE } from '@/lib/constants'
-import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation } from '@/lib/types'
+import { CLERMONT_CENTER, STATUS_LABELS, EMERGENCY_RESOURCES, REFRESH_INTERVAL, DATA_SOURCES } from '@/lib/constants'
+import Image from 'next/image'
+import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading } from '@/lib/types'
 import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance } from '@/lib/utils'
 
 // Dynamic imports for client-side only components
@@ -22,7 +23,6 @@ import { StatusBadge } from '@/components/dashboard/StatusBadge'
 import { GaugeListSidebar } from '@/components/dashboard/GaugeListSidebar'
 import { WarningBanner } from '@/components/dashboard/WarningBanner'
 import LocationSearch from '@/components/dashboard/LocationSearch'
-import QuickLinks from '@/components/dashboard/QuickLinks'
 import RainfallPanel from '@/components/dashboard/RainfallPanel'
 import type { RainfallSummary } from '@/lib/data-sources/rainfall'
 
@@ -49,7 +49,6 @@ interface RainfallAPIResponse {
 export default function DashboardPage() {
   const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>(CLERMONT_CENTER)
-  const [filterRiver, setFilterRiver] = useState<RiverSystem | 'all'>('all')
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
 
@@ -81,10 +80,8 @@ export default function DashboardPage() {
     { refreshInterval: REFRESH_INTERVAL }
   )
 
-  // Filter gauges by river system
-  const filteredGauges = waterLevels?.gauges?.filter(
-    (g) => filterRiver === 'all' || g.station.riverSystem === filterRiver
-  ) || []
+  // All gauges
+  const allGauges = waterLevels?.gauges || []
 
   // Get selected gauge data from main list (for quick access)
   const selectedGaugeBasic = waterLevels?.gauges?.find((g) => g.station.id === selectedGaugeId)
@@ -123,12 +120,6 @@ export default function DashboardPage() {
     setSelectedGaugeId(null) // Clear gauge selection to show nearby gauges
   }, [])
 
-  // Handle quick link selection
-  const handleQuickLinkSelect = useCallback((location: { lat: number; lng: number }) => {
-    setMapCenter([location.lat, location.lng])
-    setSearchedLocation(null)
-  }, [])
-
   // Handle gauge selection from map
   const handleGaugeSelect = useCallback((id: string) => {
     setSelectedGaugeId(id)
@@ -157,24 +148,36 @@ export default function DashboardPage() {
         {/* Header */}
         <header className="mb-6">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
-                {APP_NAME}
-              </h1>
-              <p className="text-gray-600 mt-1">
-                {APP_TAGLINE}
-              </p>
-            </div>
-            {/* Data source indicator */}
+            <Image
+              src="/logo.png"
+              alt="Gauge - Clermont Flood Tracking"
+              width={150}
+              height={50}
+              priority
+            />
+            {/* Data source indicator - announced to screen readers */}
             {waterLevels?.sources && (
-              <div className={cn(
-                'px-3 py-1 rounded-full text-xs font-medium',
-                waterLevels.sources.includes('mock')
-                  ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                  : 'bg-green-100 text-green-800 border border-green-300'
-              )}>
-                {waterLevels.sources.includes('mock') ? (
-                  <span>DEMO DATA - API unavailable</span>
+              <div
+                role="status"
+                aria-live="polite"
+                aria-label={
+                  waterLevels.sources.includes('unavailable')
+                    ? 'Data unavailable - check sources'
+                    : waterLevels.sources.includes('error')
+                    ? 'API error - refresh to retry'
+                    : `Live data from ${waterLevels.sources.join(' and ')}`
+                }
+                className={cn(
+                  'px-3 py-1 rounded-full text-xs font-medium',
+                  waterLevels.sources.includes('unavailable') || waterLevels.sources.includes('error')
+                    ? 'bg-red-100 text-red-800 border border-red-300'
+                    : 'bg-green-100 text-green-800 border border-green-300'
+                )}
+              >
+                {waterLevels.sources.includes('unavailable') ? (
+                  <span>DATA UNAVAILABLE - Check sources</span>
+                ) : waterLevels.sources.includes('error') ? (
+                  <span>API ERROR - Refresh to retry</span>
                 ) : (
                   <span>LIVE: {waterLevels.sources.map(s => s.toUpperCase()).join(' + ')}</span>
                 )}
@@ -183,34 +186,12 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Search and Quick Links */}
-        <div className="mb-6 space-y-4">
+        {/* Search */}
+        <div className="mb-6">
           <LocationSearch
             onSelect={handleSearchSelect}
             onAddressSelect={handleAddressSelect}
           />
-          <QuickLinks onSelect={handleQuickLinkSelect} />
-        </div>
-
-        {/* River System Filter */}
-        <div className="mb-4">
-          <label htmlFor="river-filter" className="sr-only">
-            Filter by river system
-          </label>
-          <select
-            id="river-filter"
-            value={filterRiver}
-            onChange={(e) => setFilterRiver(e.target.value as RiverSystem | 'all')}
-            className="w-full md:w-auto px-4 py-2 border rounded-lg bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="all">All River Systems</option>
-            <option value="clermont">Clermont Area</option>
-            <option value="isaac">Isaac River</option>
-            <option value="nogoa">Nogoa River</option>
-            <option value="mackenzie">Mackenzie River</option>
-            <option value="comet">Comet River</option>
-            <option value="fitzroy">Fitzroy River</option>
-          </select>
         </div>
 
         {/* Main Content Grid */}
@@ -297,6 +278,34 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
+                    {/* Discharge and Rainfall Data */}
+                    {(selectedGaugeBasic.discharge || selectedGaugeBasic.rainfall) && (
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        {/* Discharge/Flow Rate */}
+                        {selectedGaugeBasic.discharge && (
+                          <div className="p-3 bg-blue-50 rounded-lg">
+                            <div className="text-xs text-blue-600 font-medium uppercase">Flow Rate</div>
+                            <div className="text-xl font-bold text-blue-900 mt-1">
+                              {selectedGaugeBasic.discharge.value.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                              <span className="text-sm font-normal ml-1">{selectedGaugeBasic.discharge.unit}</span>
+                            </div>
+                          </div>
+                        )}
+                        {/* Rainfall */}
+                        {selectedGaugeBasic.rainfall && (
+                          <div className="p-3 bg-cyan-50 rounded-lg">
+                            <div className="text-xs text-cyan-600 font-medium uppercase">
+                              Rainfall ({selectedGaugeBasic.rainfall.period})
+                            </div>
+                            <div className="text-xl font-bold text-cyan-900 mt-1">
+                              {selectedGaugeBasic.rainfall.value.toFixed(1)}
+                              <span className="text-sm font-normal ml-1">mm</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Data Source Info */}
                     <div className={cn(
                       "text-sm p-2 rounded mb-4",
@@ -354,6 +363,57 @@ export default function DashboardPage() {
                 isLoading={rainfallLoading}
               />
             </div>
+
+            {/* Dam Storage Panel */}
+            {waterLevels?.damStorage && waterLevels.damStorage.length > 0 && (
+              <div className="mt-4 bg-white rounded-lg shadow-sm p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  Dam Storage
+                </h3>
+                <div className="space-y-3">
+                  {waterLevels.damStorage.map((dam) => (
+                    <div key={dam.stationId} className="p-3 bg-blue-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-gray-900">{dam.name}</h4>
+                        {dam.percentFull !== undefined && (
+                          <span className={cn(
+                            'px-2 py-0.5 rounded-full text-xs font-medium',
+                            dam.percentFull >= 90 ? 'bg-red-100 text-red-800' :
+                            dam.percentFull >= 75 ? 'bg-orange-100 text-orange-800' :
+                            dam.percentFull >= 50 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          )}>
+                            {dam.percentFull.toFixed(1)}% Full
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-gray-500">Volume:</span>
+                          <span className="ml-1 font-medium text-gray-900">
+                            {(dam.volume / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} GL
+                          </span>
+                        </div>
+                        {dam.level > 0 && (
+                          <div>
+                            <span className="text-gray-500">Level:</span>
+                            <span className="ml-1 font-medium text-gray-900">
+                              {dam.level.toFixed(2)}m
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-2">
+                        Updated: {formatTimeSince(dam.timestamp)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Emergency Resources */}
             <div className="mt-4 bg-red-50 rounded-lg shadow-sm p-4">

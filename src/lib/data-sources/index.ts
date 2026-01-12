@@ -21,6 +21,11 @@ export {
   fetchBOMMultipleGauges,
   fetchAllBOMWaterLevels,
   checkBOMServiceStatus,
+  fetchBOMDischarge,
+  fetchBOMDamStorage,
+  fetchAllBOMDamStorage,
+  fetchBOMRainfall,
+  fetchBOMExtendedData,
   type BOMWaterResponse,
   type BOMHistoryResponse,
 } from './bom'

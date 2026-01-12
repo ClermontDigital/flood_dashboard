@@ -94,19 +94,37 @@ const API_TIMEOUT = 15000
 
 /**
  * Parses WMIP timestamp format (YYYYMMDDHHmmss) to ISO string
+ * Queensland uses AEST (UTC+10), no daylight saving
  */
 function parseWMIPTimestamp(wmipTime: number): string {
   const str = wmipTime.toString()
-  if (str.length !== 14) return new Date().toISOString()
 
-  const year = str.slice(0, 4)
-  const month = str.slice(4, 6)
-  const day = str.slice(6, 8)
-  const hour = str.slice(8, 10)
-  const minute = str.slice(10, 12)
-  const second = str.slice(12, 14)
+  // Handle different formats
+  if (str.length !== 14) {
+    console.warn(`[WMIP] Unexpected timestamp format: ${str} (length: ${str.length})`)
+    return new Date().toISOString()
+  }
 
-  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+10:00`).toISOString()
+  const year = parseInt(str.slice(0, 4), 10)
+  const month = parseInt(str.slice(4, 6), 10) - 1 // JS months are 0-indexed
+  const day = parseInt(str.slice(6, 8), 10)
+  const hour = parseInt(str.slice(8, 10), 10)
+  const minute = parseInt(str.slice(10, 12), 10)
+  const second = parseInt(str.slice(12, 14), 10)
+
+  // Create date in UTC, then adjust for AEST (UTC+10)
+  // WMIP timestamps are in local Queensland time (AEST = UTC+10)
+  const utcMs = Date.UTC(year, month, day, hour - 10, minute, second)
+  const date = new Date(utcMs)
+
+  // Validate the date is reasonable (within last 30 days)
+  const now = Date.now()
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
+  if (date.getTime() < thirtyDaysAgo || date.getTime() > now + 60000) {
+    console.warn(`[WMIP] Timestamp out of range: ${str} -> ${date.toISOString()}`)
+  }
+
+  return date.toISOString()
 }
 
 /**

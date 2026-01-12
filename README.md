@@ -41,6 +41,9 @@ BOM Water Data API ───┘           │
 ## Features
 
 - **Real-time Water Levels**: Live data from 17 gauge stations across the Fitzroy Basin
+- **Discharge/Flow Rates**: Water flow data (ML/day or cumec) at gauge locations
+- **Dam Storage Levels**: Fairbairn Dam storage volume and percentage full
+- **Rainfall Data**: Rainfall readings at gauge stations
 - **Interactive Map**: Satellite/street/hybrid map views with status-coded markers
 - **Address Search**: Search by address, town, river, or gauge name
 - **Historical Charts**: 24-hour water level history with flood threshold indicators
@@ -93,11 +96,34 @@ See `.env.example` for all available configuration options:
 
 ## Data Sources
 
-- **[Queensland WMIP](https://water-monitoring.information.qld.gov.au/)** - Primary water level data
-- **[Bureau of Meteorology](https://www.bom.gov.au/waterdata/)** - Backup data & flood warnings
-- **[BOM Flood Warnings](https://www.bom.gov.au/qld/flood/)** - Official flood alerts
+All data is sourced from official Australian Government APIs:
 
-## Monitored Gauge Stations (17 Total)
+### Bureau of Meteorology (BOM) - Water Data Online
+**URL**: [www.bom.gov.au/waterdata/](https://www.bom.gov.au/waterdata/)
+
+The BOM SOS2 (Sensor Observation Service) API provides:
+
+| Data Type | Parameter | Unit | Description |
+|-----------|-----------|------|-------------|
+| Water Level | `Water Course Level` | metres | Current water height at gauge |
+| Discharge | `Water Course Discharge` | ML/d or cumec | Water flow rate |
+| Dam Storage Volume | `Storage Volume` | ML | Total water stored |
+| Dam Storage Level | `Storage Level` | metres | Dam water elevation |
+| Rainfall | `Rainfall` | mm | Daily rainfall totals |
+
+### Queensland WMIP (Water Monitoring Information Portal)
+**URL**: [water-monitoring.information.qld.gov.au](https://water-monitoring.information.qld.gov.au/)
+
+Queensland Government's water monitoring system, used as a fallback data source for water levels.
+
+### BOM Flood Warnings
+**URL**: [www.bom.gov.au/qld/flood/](https://www.bom.gov.au/qld/flood/)
+
+Official flood warnings and alerts for Queensland catchments.
+
+## Monitored Infrastructure
+
+### Gauge Stations (17 Total)
 
 | Region | Gauges |
 |--------|--------|
@@ -107,6 +133,12 @@ See `.env.example` for all available configuration options:
 | Mackenzie River | Bingegang, Coolmaringa, Rileys Crossing |
 | Comet River | Comet Weir, The Lake |
 | Fitzroy River | The Gap, Yaamba, Rockhampton |
+
+### Dam Storage
+
+| Dam | Station ID | River | Capacity |
+|-----|------------|-------|----------|
+| Fairbairn Dam | 130216A | Nogoa River | 1,301,000 ML |
 
 ## Production Deployment
 

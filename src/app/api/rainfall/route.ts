@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { fetchRainfall, fetchRegionalRainfall, type RainfallSummary } from '@/lib/data-sources'
 import { GAUGE_STATIONS } from '@/lib/constants'
+import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const revalidate = 300 // Cache for 5 minutes
@@ -12,7 +13,45 @@ interface RainfallAPIResponse {
   errors: string[]
 }
 
+/**
+ * Validate and parse coordinate parameters
+ */
+function validateCoordinates(latStr: string | null, lngStr: string | null): {
+  valid: boolean
+  lat?: number
+  lng?: number
+  error?: string
+} {
+  if (!latStr || !lngStr) {
+    return { valid: false, error: 'Missing latitude or longitude parameter' }
+  }
+
+  const lat = parseFloat(latStr)
+  const lng = parseFloat(lngStr)
+
+  if (isNaN(lat) || isNaN(lng)) {
+    return { valid: false, error: 'Invalid coordinate format - must be numeric' }
+  }
+
+  if (lat < -90 || lat > 90) {
+    return { valid: false, error: 'Latitude must be between -90 and 90' }
+  }
+
+  if (lng < -180 || lng > 180) {
+    return { valid: false, error: 'Longitude must be between -180 and 180' }
+  }
+
+  return { valid: true, lat, lng }
+}
+
 export async function GET(request: Request) {
+  // Apply rate limiting
+  const clientIp = getClientIp(request)
+  const rateLimitResult = checkRateLimit(clientIp)
+  if (!rateLimitResult.success) {
+    return rateLimitExceededResponse(rateLimitResult)
+  }
+
   const { searchParams } = new URL(request.url)
   const gaugeId = searchParams.get('gauge')
   const lat = searchParams.get('lat')
@@ -22,10 +61,18 @@ export async function GET(request: Request) {
 
   try {
     // If specific location requested
-    if (lat && lng) {
+    if (lat || lng) {
+      const coordResult = validateCoordinates(lat, lng)
+      if (!coordResult.valid) {
+        return NextResponse.json(
+          { success: false, error: coordResult.error },
+          { status: 400 }
+        )
+      }
+
       const result = await fetchRainfall(
-        parseFloat(lat),
-        parseFloat(lng),
+        coordResult.lat!,
+        coordResult.lng!,
         searchParams.get('name') || undefined
       )
 

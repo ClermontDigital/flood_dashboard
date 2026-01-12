@@ -380,7 +380,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                       View Details
                     </button>
                     <a
-                      href={`https://water-monitoring.information.qld.gov.au/?ppbm=${gauge.station.id}`}
+                      href="https://water-monitoring.information.qld.gov.au/"
                       target="_blank"
                       rel="noopener noreferrer"
                       className={cn(

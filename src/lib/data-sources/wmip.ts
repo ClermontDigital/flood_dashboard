@@ -7,7 +7,7 @@
  * @see https://water-monitoring.information.qld.gov.au/
  */
 
-import type { WaterLevel, HistoryPoint, Trend, FloodThresholds } from '@/lib/types'
+import type { WaterLevel, HistoryPoint, Trend, FloodThresholds, DischargeReading } from '@/lib/types'
 import { WMIP_BASE_URL } from '@/lib/constants'
 import { generateMockWaterLevel, calculateTrend } from '@/lib/utils'
 
@@ -182,7 +182,7 @@ async function getVariableInfo(gaugeId: string): Promise<WMIPVariable | null> {
       return?: { sites?: Array<{ variables?: WMIPVariable[] }> }
     }>('get_variable_list', {
       site_list: gaugeId,
-      datasource: 'A',
+      datasource: 'AT',
     }, '1')  // get_variable_list requires version 1
 
     if (response.error_num !== 0) return null
@@ -194,6 +194,34 @@ async function getVariableInfo(gaugeId: string): Promise<WMIPVariable | null> {
     return null
   }
 }
+
+/**
+ * Gets all available variables for a gauge
+ */
+async function getAllVariables(gaugeId: string): Promise<WMIPVariable[]> {
+  try {
+    const response = await wmipPost<{
+      error_num: number
+      return?: { sites?: Array<{ variables?: WMIPVariable[] }> }
+    }>('get_variable_list', {
+      site_list: gaugeId,
+      datasource: 'AT',
+    }, '1')
+
+    if (response.error_num !== 0) return []
+    return response.return?.sites?.[0]?.variables || []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * WMIP discharge variable codes
+ * 141.00 = Discharge (cumecs)
+ * 140.00 = Discharge (ML/d)
+ */
+const DISCHARGE_VAR_CUMECS = '141.00'
+const DISCHARGE_VAR_MLD = '140.00'
 
 /**
  * Fetches water level data for a specific date range
@@ -210,7 +238,7 @@ async function fetchWaterLevelData(
       return?: { traces?: WMIPTraceResponse[] }
     }>('get_ts_traces', {
       site_list: gaugeId,
-      datasource: 'A',
+      datasource: 'AT',
       start_time: startTime,
       end_time: endTime,
       varfrom: '100.00',
@@ -241,12 +269,15 @@ async function fetchWaterLevelData(
  * Calculates trend from trace data
  */
 function calculateTrendFromTrace(trace: WMIPTracePoint[]): { trend: Trend; changeRate: number } {
-  if (trace.length < 2) {
+  // Filter for valid points (quality code 255 = no data)
+  const validPoints = trace.filter(p => p.q !== 255)
+
+  if (validPoints.length < 2) {
     return { trend: 'stable', changeRate: 0 }
   }
 
-  const current = parseFloat(trace[trace.length - 1].v)
-  const previous = parseFloat(trace[Math.max(0, trace.length - 4)].v)
+  const current = parseFloat(validPoints[validPoints.length - 1].v)
+  const previous = parseFloat(validPoints[Math.max(0, validPoints.length - 4)].v)
 
   const changeRate = current - previous
   const trend = calculateTrend(current, previous, 1)
@@ -325,7 +356,15 @@ export async function fetchWMIPWaterLevel(gaugeId: string): Promise<WMIPResponse
       return { success: false, data: null, error: 'No trace data' }
     }
 
-    const latestPoint = trace.trace[trace.trace.length - 1]
+    // Filter for valid data points (quality code 255 = no data, skip those)
+    // Also filter out zero values with quality 255
+    const validPoints = trace.trace.filter(p => p.q !== 255 && !(p.q === 255 && parseFloat(p.v) === 0))
+
+    if (validPoints.length === 0) {
+      return { success: false, data: null, error: 'No valid data points' }
+    }
+
+    const latestPoint = validPoints[validPoints.length - 1]
     const level = parseFloat(latestPoint.v)
     const timestamp = parseWMIPTimestamp(latestPoint.t)
     const { trend, changeRate } = calculateTrendFromTrace(trace.trace)
@@ -383,7 +422,14 @@ export async function fetchWMIPHistory(
       return { success: false, data: [], error: 'No trace data' }
     }
 
-    const history: HistoryPoint[] = trace.trace.map(point => ({
+    // Filter out invalid data points (quality code 255 = no data)
+    const validPoints = trace.trace.filter(p => p.q !== 255)
+
+    if (validPoints.length === 0) {
+      return { success: false, data: [], error: 'No valid data points' }
+    }
+
+    const history: HistoryPoint[] = validPoints.map(point => ({
       timestamp: parseWMIPTimestamp(point.t),
       level: parseFloat(point.v),
     }))

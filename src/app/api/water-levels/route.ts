@@ -69,12 +69,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
   }
 
   try {
-    // Try BOM first (more reliable for current data)
-    console.log('[API] Trying BOM as primary source...')
-    const bomResults = await fetchBOMMultipleGauges(gaugeIds)
+    // Try WMIP first (real-time telemetry data)
+    console.log('[API] Trying WMIP as primary source (real-time telemetry)...')
+    const wmipResults = await fetchWMIPMultipleGauges(gaugeIds)
 
-    let bomSuccessCount = 0
-    for (const [gaugeId, result] of bomResults) {
+    let wmipSuccessCount = 0
+    for (const [gaugeId, result] of wmipResults) {
       if (result.success && result.data && isDataFresh(result.data.timestamp)) {
         const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
         const enrichedData: WaterLevel = {
@@ -82,32 +82,34 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
           status: calculateStatus(result.data.level, thresholds),
         }
         waterLevelMap.set(gaugeId, enrichedData)
-        bomSuccessCount++
+        wmipSuccessCount++
 
         // Log high water levels
         if (result.data.level > 3) {
-          console.log(`[API] BOM high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
+          console.log(`[API] WMIP high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
         }
       } else if (result.data && !isDataFresh(result.data.timestamp)) {
-        console.log(`[API] BOM data stale for ${gaugeId}: ${result.data.timestamp}`)
+        console.log(`[API] WMIP data stale for ${gaugeId}: ${result.data.timestamp}`)
+      } else if (result.error) {
+        console.log(`[API] WMIP error for ${gaugeId}: ${result.error}`)
       }
     }
 
-    console.log(`[API] BOM returned fresh data for ${bomSuccessCount}/${gaugeIds.length} gauges`)
+    console.log(`[API] WMIP returned fresh data for ${wmipSuccessCount}/${gaugeIds.length} gauges`)
 
-    if (bomSuccessCount > 0) {
-      sources.push('bom')
+    if (wmipSuccessCount > 0) {
+      sources.push('wmip')
     }
 
-    // For gauges without BOM data, try WMIP fallback
+    // For gauges without WMIP data, try BOM fallback
     const missingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
 
     if (missingGaugeIds.length > 0) {
-      console.log(`[API] Trying WMIP for ${missingGaugeIds.length} missing gauges...`)
-      const wmipResults = await fetchWMIPMultipleGauges(missingGaugeIds)
+      console.log(`[API] Trying BOM for ${missingGaugeIds.length} missing gauges...`)
+      const bomResults = await fetchBOMMultipleGauges(missingGaugeIds)
 
-      let wmipSuccessCount = 0
-      for (const [gaugeId, result] of wmipResults) {
+      let bomSuccessCount = 0
+      for (const [gaugeId, result] of bomResults) {
         if (result.success && result.data && isDataFresh(result.data.timestamp)) {
           const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
           const enrichedData: WaterLevel = {
@@ -115,22 +117,20 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
             status: calculateStatus(result.data.level, thresholds),
           }
           waterLevelMap.set(gaugeId, enrichedData)
-          wmipSuccessCount++
+          bomSuccessCount++
 
           if (result.data.level > 3) {
-            console.log(`[API] WMIP high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
+            console.log(`[API] BOM high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
           }
         } else if (result.data && !isDataFresh(result.data.timestamp)) {
-          console.log(`[API] WMIP data stale for ${gaugeId}: ${result.data.timestamp}`)
-        } else if (result.error) {
-          console.log(`[API] WMIP error for ${gaugeId}: ${result.error}`)
+          console.log(`[API] BOM data stale for ${gaugeId}: ${result.data.timestamp}`)
         }
       }
 
-      console.log(`[API] WMIP returned fresh data for ${wmipSuccessCount}/${missingGaugeIds.length} gauges`)
+      console.log(`[API] BOM returned fresh data for ${bomSuccessCount}/${missingGaugeIds.length} gauges`)
 
-      if (wmipSuccessCount > 0) {
-        sources.push('wmip')
+      if (bomSuccessCount > 0) {
+        sources.push('bom')
       }
     }
 

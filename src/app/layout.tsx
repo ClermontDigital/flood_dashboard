@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'GAUGE - Fitzroy Basin Flood Dashboard',
+  title: 'Gauge - Clermont Flood Tracking',
   description: 'Real-time water level monitoring and flood warnings for Clermont, QLD and the Fitzroy Basin region',
   manifest: '/manifest.json',
 }
@@ -30,11 +30,53 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-gray-50">
-        {/* Disclaimer Banner */}
-        <div className="bg-blue-900 text-white text-xs px-4 py-2 text-center">
-          <strong>Important:</strong> This dashboard is for informational purposes only.
-          Always follow official <a href="https://www.bom.gov.au/qld/flood/" className="underline">BOM warnings</a>.
-          In emergencies, call <strong>000</strong>.
+        {/* Emergency Resources Banner */}
+        <div className="bg-red-800 text-white text-xs px-4 py-2">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
+              <div className="text-center sm:text-left">
+                <strong>Important:</strong> This dashboard is for informational purposes only.
+                Always follow official warnings. In emergencies, call <strong>000</strong>.
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <a
+                  href="https://www.bom.gov.au/qld/flood/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-red-200"
+                >
+                  BOM Flood Warnings
+                </a>
+                <span className="hidden sm:inline text-red-400">|</span>
+                <a
+                  href="https://www.qfes.qld.gov.au/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-red-200"
+                >
+                  QFES
+                </a>
+                <span className="hidden sm:inline text-red-400">|</span>
+                <a
+                  href="https://www.isaac.qld.gov.au/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-red-200"
+                >
+                  Isaac Regional Council
+                </a>
+                <span className="hidden sm:inline text-red-400">|</span>
+                <a
+                  href="https://www.ses.qld.gov.au/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-red-200"
+                >
+                  SES
+                </a>
+              </div>
+            </div>
+          </div>
         </div>
 
         {children}

@@ -61,7 +61,7 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-3">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700">Rainfall</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Weather & Rainfall</h3>
           <span className={cn(
             "px-2 py-0.5 text-xs font-medium rounded-full border",
             riskColors[risk]
@@ -84,6 +84,35 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
             Currently raining: {intensity}
           </p>
         )}
+        {/* BOM Quick Links */}
+        <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-2 text-xs">
+          <a
+            href="https://www.bom.gov.au/location/australia/queensland/central-highlands-and-coalfields/bqld_pt064-clermont"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            BOM Forecast
+          </a>
+          <span className="text-gray-300">|</span>
+          <a
+            href="http://www.bom.gov.au/products/IDR663.loop.shtml"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            Radar
+          </a>
+          <span className="text-gray-300">|</span>
+          <a
+            href="http://www.bom.gov.au/qld/warnings/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            Warnings
+          </a>
+        </div>
       </div>
     )
   }
@@ -198,8 +227,59 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
         </div>
       )}
 
+      {/* BOM Weather Links */}
+      <div className="mt-4 pt-3 border-t border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">BOM Weather</p>
+        <div className="grid grid-cols-2 gap-2">
+          <a
+            href="https://www.bom.gov.au/location/australia/queensland/central-highlands-and-coalfields/bqld_pt064-clermont"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg text-sm text-blue-700 hover:bg-blue-100 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+            Clermont Forecast
+          </a>
+          <a
+            href="http://www.bom.gov.au/products/IDR663.loop.shtml"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg text-sm text-blue-700 hover:bg-blue-100 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            Weather Radar
+          </a>
+          <a
+            href="http://www.bom.gov.au/qld/warnings/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-lg text-sm text-orange-700 hover:bg-orange-100 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            QLD Warnings
+          </a>
+          <a
+            href="http://www.bom.gov.au/qld/flood/rivers/fitzroy/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg text-sm text-blue-700 hover:bg-blue-100 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+            Fitzroy River Heights
+          </a>
+        </div>
+      </div>
+
       {/* Location and Source */}
-      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+      <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
         {rainfall.location.name && (
           <p className="text-xs text-gray-400">
             {rainfall.location.name}
@@ -209,9 +289,9 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
           href="https://open-meteo.com/"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-blue-500 hover:underline flex items-center gap-1"
+          className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
         >
-          Source: Open-Meteo
+          Rainfall: Open-Meteo
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
           </svg>

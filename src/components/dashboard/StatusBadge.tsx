@@ -5,7 +5,7 @@ import type { FloodStatus } from '@/lib/types'
 
 interface StatusBadgeProps {
   status: FloodStatus
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'xs' | 'sm' | 'md' | 'lg'
 }
 
 const statusConfig = {
@@ -99,6 +99,10 @@ const statusConfig = {
 }
 
 const sizeConfig = {
+  xs: {
+    badge: 'px-1.5 py-0.5 text-[10px] gap-0.5',
+    icon: 'w-2.5 h-2.5',
+  },
   sm: {
     badge: 'px-2 py-0.5 text-xs gap-1',
     icon: 'w-3 h-3',

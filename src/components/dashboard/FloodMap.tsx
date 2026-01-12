@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
 import L from 'leaflet'
-import type { GaugeData, FloodStatus, RiverSystem } from '@/lib/types'
+import type { GaugeData, FloodStatus, RiverSystem, RoadEvent } from '@/lib/types'
 import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES } from '@/lib/constants'
 import { cn, formatLevel, getTrendArrow, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
@@ -16,6 +16,8 @@ interface FloodMapProps {
   onSelectGauge: (id: string) => void
   center?: [number, number]
   searchedLocation?: { lat: number; lng: number; name: string } | null
+  roadEvents?: RoadEvent[]
+  showRoadClosures?: boolean
 }
 
 // Create custom colored markers for different status levels
@@ -104,6 +106,76 @@ function createLocationIcon(): L.DivIcon {
   })
 }
 
+// Create road closure/event icon
+function createRoadEventIcon(type: RoadEvent['type'], severity: RoadEvent['severity']): L.DivIcon {
+  const colors = {
+    flooding: '#dc2626', // red-600
+    road_closure: '#ea580c', // orange-600
+    hazard: '#ca8a04', // yellow-600
+    roadworks: '#2563eb', // blue-600
+    crash: '#7c3aed', // violet-600
+    congestion: '#0891b2', // cyan-600
+    special_event: '#059669', // emerald-600
+  }
+
+  const icons = {
+    flooding: `<path d="M12 2L2 22h20L12 2zm0 4l7 14H5l7-14z"/><path d="M11 10h2v5h-2zm0 6h2v2h-2z"/>`, // water/flood warning
+    road_closure: `<circle cx="12" cy="12" r="10"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/>`, // X in circle
+    hazard: `<path d="M12 2L2 22h20L12 2z"/><path d="M11 10h2v5h-2zm0 6h2v2h-2z"/>`, // warning triangle
+    roadworks: `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8m-4-4h8"/>`, // construction
+    crash: `<circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>`, // alert circle
+    congestion: `<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="7" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="17" cy="12" r="2"/>`, // traffic light
+    special_event: `<path d="M12 2l2.4 7.4h7.6l-6.2 4.5 2.4 7.4-6.2-4.5-6.2 4.5 2.4-7.4-6.2-4.5h7.6z"/>`, // star
+  }
+
+  const color = colors[type] || colors.hazard
+  const iconPath = icons[type] || icons.hazard
+  const size = severity === 'extreme' || severity === 'high' ? 28 : 24
+  const pulseAnimation = (severity === 'extreme' || severity === 'high') ? `
+    <style>
+      @keyframes roadPulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.7; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+    </style>
+  ` : ''
+
+  return L.divIcon({
+    className: 'road-event-marker',
+    html: `
+      ${pulseAnimation}
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        background-color: ${color};
+        border: 2px solid white;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        ${(severity === 'extreme' || severity === 'high') ? 'animation: roadPulse 2s infinite;' : ''}
+      ">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="white"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          style="width: ${size - 8}px; height: ${size - 8}px;"
+        >
+          ${iconPath}
+        </svg>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  })
+}
+
 // Component to handle map view changes
 function MapController({ center, selectedGaugeId, gauges, searchedLocation }: {
   center?: [number, number]
@@ -166,7 +238,7 @@ function MapLayerToggle({
   )
 }
 
-function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation }: FloodMapProps) {
+function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true }: FloodMapProps) {
   const mapCenter = center || CLERMONT_CENTER
   const [mapLayer, setMapLayer] = useState<MapLayerType>(() =>
     getLocalStorage<MapLayerType>('mapLayer', 'satellite')
@@ -180,9 +252,21 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
   const currentLayerConfig = MAP_LAYERS[mapLayer]
   const locationIcon = useMemo(() => createLocationIcon(), [])
 
+  // Memoize road event icons
+  const roadEventIcons = useMemo(() => {
+    const icons: Record<string, L.DivIcon> = {}
+    roadEvents.forEach(event => {
+      const key = `${event.type}-${event.severity}`
+      if (!icons[key]) {
+        icons[key] = createRoadEventIcon(event.type, event.severity)
+      }
+    })
+    return icons
+  }, [roadEvents])
+
   // Memoize icons to prevent recreation on each render
   const icons = useMemo(() => {
-    const statusTypes: FloodStatus[] = ['safe', 'watch', 'warning', 'danger']
+    const statusTypes: FloodStatus[] = ['safe', 'watch', 'warning', 'danger', 'offline']
     const normalIcons: Record<FloodStatus, L.DivIcon> = {} as Record<FloodStatus, L.DivIcon>
     const selectedIcons: Record<FloodStatus, L.DivIcon> = {} as Record<FloodStatus, L.DivIcon>
 
@@ -233,7 +317,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
         {(Object.entries(RIVER_PATHS) as [RiverSystem, [number, number][]][]).map(([riverSystem, path]) => {
           // Find the worst status for this river system
           const riverGauges = gauges.filter(g => g.station.riverSystem === riverSystem)
-          const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3 }
+          const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3, offline: 4 }
 
           const worstStatus = riverGauges.reduce<FloodStatus>((worst, gauge) => {
             const status = gauge.reading?.status || 'safe'
@@ -313,7 +397,8 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
         )}
 
         {gauges.map((gauge) => {
-          const status = gauge.reading?.status || 'safe'
+          const isOffline = gauge.station.isOffline === true
+          const status: FloodStatus = isOffline ? 'offline' : (gauge.reading?.status || 'safe')
           const isSelected = gauge.station.id === selectedGaugeId
           const icon = isSelected ? icons.selected[status] : icons.normal[status]
 
@@ -335,7 +420,26 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                     {gauge.station.stream}
                   </p>
 
-                  {gauge.reading ? (
+                  {isOffline ? (
+                    <>
+                      <div
+                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-gray-200 text-gray-700"
+                      >
+                        OFFLINE
+                      </div>
+                      <p className="mt-2 text-xs text-gray-600">
+                        This gauge is no longer reporting data.
+                      </p>
+                      {gauge.station.lastDataYear && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Last data: {gauge.station.lastDataYear}
+                        </p>
+                      )}
+                      <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                        This monitoring station has been taken offline. Community members have raised concerns about the lack of flood monitoring in this area.
+                      </div>
+                    </>
+                  ) : gauge.reading ? (
                     <>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-lg font-bold text-gray-900">
@@ -392,6 +496,90 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                       title="View on WMIP"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        })}
+
+        {/* Road closure/event markers */}
+        {showRoadClosures && roadEvents.map((event) => {
+          const iconKey = `${event.type}-${event.severity}`
+          const icon = roadEventIcons[iconKey] || createRoadEventIcon(event.type, event.severity)
+
+          const eventTypeLabels: Record<RoadEvent['type'], string> = {
+            flooding: 'Flooding',
+            road_closure: 'Road Closed',
+            hazard: 'Hazard',
+            roadworks: 'Roadworks',
+            crash: 'Crash',
+            congestion: 'Congestion',
+            special_event: 'Special Event',
+          }
+
+          const severityColors: Record<RoadEvent['severity'], string> = {
+            low: 'bg-green-100 text-green-800',
+            medium: 'bg-yellow-100 text-yellow-800',
+            high: 'bg-orange-100 text-orange-800',
+            extreme: 'bg-red-100 text-red-800',
+          }
+
+          return (
+            <Marker
+              key={event.id}
+              position={[event.lat, event.lng]}
+              icon={icon}
+            >
+              <Popup>
+                <div className="min-w-[220px] p-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={cn(
+                      'inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold',
+                      severityColors[event.severity]
+                    )}>
+                      {eventTypeLabels[event.type]}
+                    </span>
+                    <span className="text-xs text-gray-500 capitalize">
+                      {event.severity} severity
+                    </span>
+                  </div>
+
+                  <h3 className="font-semibold text-gray-900 text-sm mb-1">
+                    {event.road}
+                  </h3>
+
+                  {event.suburb && (
+                    <p className="text-xs text-gray-500 mb-2">
+                      {event.suburb}
+                    </p>
+                  )}
+
+                  <p className="text-xs text-gray-700 mb-3">
+                    {event.description}
+                  </p>
+
+                  {event.direction && (
+                    <p className="text-xs text-gray-600 mb-2">
+                      Direction: {event.direction}
+                    </p>
+                  )}
+
+                  <div className="pt-2 border-t border-gray-100">
+                    <p className="text-xs text-gray-500 mb-1">
+                      Source: QLDTraffic
+                    </p>
+                    <a
+                      href={event.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      Verify on QLDTraffic
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                       </svg>
                     </a>

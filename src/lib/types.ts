@@ -1,5 +1,5 @@
 // Flood status levels
-export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger'
+export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'offline'
 
 // Trend indicators
 export type Trend = 'rising' | 'falling' | 'stable'
@@ -22,6 +22,8 @@ export interface GaugeStation {
   lat: number
   lng: number
   role: string
+  isOffline?: boolean
+  lastDataYear?: number // Year when gauge last had data (for offline gauges)
 }
 
 // Water level reading
@@ -176,4 +178,30 @@ export interface CameraStation {
   videoUrl?: string // Optional video stream URL
   source: 'tmr' | 'council' | 'bom' // Transport and Main Roads, Council, or BOM
   lastUpdated?: string
+}
+
+// Road closure/event from QLDTraffic
+export interface RoadEvent {
+  id: string
+  type: 'flooding' | 'road_closure' | 'hazard' | 'roadworks' | 'crash' | 'congestion' | 'special_event'
+  title: string
+  description: string
+  road: string
+  suburb?: string
+  direction?: string
+  lat: number
+  lng: number
+  startTime?: string
+  endTime?: string
+  severity: 'low' | 'medium' | 'high' | 'extreme'
+  source: 'qldtraffic'
+  sourceUrl: string // Link to verify on QLDTraffic
+  lastUpdated: string
+}
+
+export interface RoadEventsResponse {
+  events: RoadEvent[]
+  lastUpdated: string
+  source: 'qldtraffic'
+  sourceUrl: string // Main QLDTraffic URL for verification
 }

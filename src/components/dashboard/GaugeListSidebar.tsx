@@ -21,6 +21,7 @@ const STATUS_PRIORITY: Record<FloodStatus, number> = {
   warning: 1,
   watch: 2,
   safe: 3,
+  offline: 4,
 }
 
 export function GaugeListSidebar({
@@ -40,10 +41,15 @@ export function GaugeListSidebar({
       warning: 0,
       watch: 0,
       safe: 0,
+      offline: 0,
     }
     gauges.forEach((gauge) => {
-      const status = gauge.reading?.status || 'safe'
-      summary[status]++
+      if (gauge.station.isOffline) {
+        summary.offline++
+      } else {
+        const status = gauge.reading?.status || 'safe'
+        summary[status]++
+      }
     })
     return summary
   }, [gauges])
@@ -51,8 +57,8 @@ export function GaugeListSidebar({
   // Sort gauges by status priority
   const sortedByStatus = useMemo(() => {
     return [...gauges].sort((a, b) => {
-      const statusA = a.reading?.status || 'safe'
-      const statusB = b.reading?.status || 'safe'
+      const statusA: FloodStatus = a.station.isOffline ? 'offline' : (a.reading?.status || 'safe')
+      const statusB: FloodStatus = b.station.isOffline ? 'offline' : (b.reading?.status || 'safe')
       return STATUS_PRIORITY[statusA] - STATUS_PRIORITY[statusB]
     })
   }, [gauges])
@@ -70,26 +76,30 @@ export function GaugeListSidebar({
     // Sort each group by status
     groups.forEach((regionGauges) => {
       regionGauges.sort((a, b) => {
-        const statusA = a.reading?.status || 'safe'
-        const statusB = b.reading?.status || 'safe'
+        const statusA: FloodStatus = a.station.isOffline ? 'offline' : (a.reading?.status || 'safe')
+        const statusB: FloodStatus = b.station.isOffline ? 'offline' : (b.reading?.status || 'safe')
         return STATUS_PRIORITY[statusA] - STATUS_PRIORITY[statusB]
       })
     })
     return groups
   }, [gauges])
 
-  // Get worst status for a region
+  // Get worst status for a region (excluding offline gauges from severity calculation)
   const getRegionStatus = (regionGauges: GaugeData[]): FloodStatus => {
     let worstStatus: FloodStatus = 'safe'
     let worstPriority = STATUS_PRIORITY['safe']
+    let hasOnlineGauges = false
     regionGauges.forEach((gauge) => {
+      if (gauge.station.isOffline) return // Skip offline gauges for status calculation
+      hasOnlineGauges = true
       const status = gauge.reading?.status || 'safe'
       if (STATUS_PRIORITY[status] < worstPriority) {
         worstStatus = status
         worstPriority = STATUS_PRIORITY[status]
       }
     })
-    return worstStatus
+    // If all gauges are offline, return offline status
+    return hasOnlineGauges ? worstStatus : 'offline'
   }
 
   const toggleRegion = (region: RiverSystem) => {
@@ -175,6 +185,11 @@ export function GaugeListSidebar({
           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
             {statusSummary.safe} Safe
           </span>
+          {statusSummary.offline > 0 && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700">
+              {statusSummary.offline} Offline
+            </span>
+          )}
         </div>
 
         {/* View Toggle */}

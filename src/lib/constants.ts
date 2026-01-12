@@ -98,6 +98,7 @@ export const STATUS_COLORS: Record<string, string> = {
   watch: '#eab308',
   warning: '#f97316',
   danger: '#ef4444',
+  offline: '#6b7280', // gray-500
 }
 
 // Status labels for non-tech users
@@ -122,6 +123,11 @@ export const STATUS_LABELS = {
     message: 'Flooding occurring. Take action now.',
     action: 'Follow emergency services advice, evacuate if directed',
   },
+  offline: {
+    label: 'OFFLINE',
+    message: 'This gauge is no longer reporting data.',
+    action: 'Contact Queensland Government for information',
+  },
 }
 
 // River system display names
@@ -136,7 +142,18 @@ export const RIVER_SYSTEM_NAMES: Record<RiverSystem, string> = {
 
 // All gauge stations
 export const GAUGE_STATIONS: GaugeStation[] = [
-  // Clermont Area (1 gauge)
+  // Clermont Area (1 active + 2 offline)
+  {
+    id: '130212A',
+    name: 'Theresa Creek @ Gregory Hwy',
+    stream: 'Theresa Creek',
+    riverSystem: 'clermont',
+    lat: -22.7833,
+    lng: 147.5667,
+    role: 'Upstream early warning',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
   {
     id: '130207A',
     name: 'Sandy Creek @ Clermont',
@@ -146,8 +163,19 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 147.6392,
     role: 'Primary monitoring',
   },
+  {
+    id: '120311A',
+    name: 'Clermont Alpha Rd',
+    stream: 'Eastern Creek',
+    riverSystem: 'clermont',
+    lat: -22.9000,
+    lng: 147.7000,
+    role: 'Secondary monitoring',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
 
-  // Isaac River System (2 gauges)
+  // Isaac River System (2 active + 1 offline)
   {
     id: '130401A',
     name: 'Isaac River @ Yatton',
@@ -166,8 +194,19 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 148.6167,
     role: 'Mid Isaac',
   },
+  {
+    id: '130408A',
+    name: 'Connors River @ Pink Lagoon',
+    stream: 'Connors River',
+    riverSystem: 'isaac',
+    lat: -21.9500,
+    lng: 148.7833,
+    role: 'Tributary input',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
 
-  // Nogoa River System (2 gauges)
+  // Nogoa River System (2 active + 1 offline)
   {
     id: '130209A',
     name: 'Nogoa River @ Craigmore',
@@ -186,8 +225,19 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 148.1000,
     role: 'Below Fairbairn Dam',
   },
+  {
+    id: '130204A',
+    name: 'Retreat Creek @ Dunrobin',
+    stream: 'Retreat Creek',
+    riverSystem: 'nogoa',
+    lat: -23.6000,
+    lng: 147.8000,
+    role: 'Tributary',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
 
-  // Mackenzie River System (3 gauges)
+  // Mackenzie River System (3 active)
   {
     id: '130106A',
     name: 'Mackenzie River @ Bingegang',
@@ -216,7 +266,31 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     role: 'Upper Mackenzie',
   },
 
-  // Fitzroy River (2 gauges)
+  // Comet River System (2 offline - no active gauges)
+  {
+    id: '130504A',
+    name: 'Comet River @ Comet Weir',
+    stream: 'Comet River',
+    riverSystem: 'comet',
+    lat: -23.6000,
+    lng: 148.5500,
+    role: 'Lower Comet',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
+  {
+    id: '130502A',
+    name: 'Comet River @ The Lake',
+    stream: 'Comet River',
+    riverSystem: 'comet',
+    lat: -23.8000,
+    lng: 148.3000,
+    role: 'Upper Comet',
+    isOffline: true,
+    lastDataYear: 2024,
+  },
+
+  // Fitzroy River (2 active + 1 offline)
   {
     id: '130004A',
     name: 'Fitzroy River @ The Gap',
@@ -225,6 +299,17 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -23.3833,
     lng: 149.9167,
     role: 'Upper Fitzroy',
+  },
+  {
+    id: '130003A',
+    name: 'Fitzroy River @ Yaamba',
+    stream: 'Fitzroy River',
+    riverSystem: 'fitzroy',
+    lat: -23.1333,
+    lng: 150.3667,
+    role: 'Mid Fitzroy',
+    isOffline: true,
+    lastDataYear: 2024,
   },
   {
     id: '130005A',

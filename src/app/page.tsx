@@ -6,7 +6,7 @@ import useSWR from 'swr'
 import { CLERMONT_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/lib/constants'
 import Image from 'next/image'
 import Link from 'next/link'
-import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading } from '@/lib/types'
+import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading, RoadEventsResponse } from '@/lib/types'
 import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance } from '@/lib/utils'
 
 // Loading placeholder component
@@ -67,6 +67,7 @@ export default function DashboardPage() {
   const [mapCenter, setMapCenter] = useState<[number, number]>(CLERMONT_CENTER)
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
+  const [showRoadClosures, setShowRoadClosures] = useState<boolean>(true)
 
   // Ref for gauge details section to scroll to
   const gaugeDetailsRef = useRef<HTMLDivElement>(null)
@@ -102,6 +103,13 @@ export default function DashboardPage() {
   // Fetch BOM weather data
   const { data: weatherData, isLoading: weatherLoading } = useSWR<{ success: boolean; data: BOMObservation | null }>(
     '/api/weather',
+    fetcher,
+    { refreshInterval: REFRESH_INTERVAL }
+  )
+
+  // Fetch road closures from QLDTraffic
+  const { data: roadClosuresData } = useSWR<RoadEventsResponse>(
+    '/api/road-closures',
     fetcher,
     { refreshInterval: REFRESH_INTERVAL }
   )
@@ -274,7 +282,53 @@ export default function DashboardPage() {
                   onSelectGauge={handleGaugeSelect}
                   center={mapCenter}
                   searchedLocation={searchedLocation}
+                  roadEvents={roadClosuresData?.events}
+                  showRoadClosures={showRoadClosures}
                 />
+              </div>
+
+              {/* Road Closures Toggle and Summary */}
+              <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowRoadClosures(!showRoadClosures)}
+                    className={cn(
+                      'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
+                      showRoadClosures ? 'bg-blue-600' : 'bg-gray-200'
+                    )}
+                    role="switch"
+                    aria-checked={showRoadClosures}
+                    aria-label="Show road closures on map"
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                        showRoadClosures ? 'translate-x-5' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                  <span className="text-sm font-medium text-gray-700">
+                    Road Closures
+                  </span>
+                  {roadClosuresData?.events && roadClosuresData.events.length > 0 && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                      {roadClosuresData.events.length} active
+                    </span>
+                  )}
+                </div>
+                {roadClosuresData?.sourceUrl && (
+                  <a
+                    href={roadClosuresData.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    Source: QLDTraffic
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                )}
               </div>
             </div>
 

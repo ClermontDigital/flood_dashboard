@@ -48,53 +48,89 @@ export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
   let waterLevelMap = new Map<string, WaterLevel>()
   let useMockData = false
 
-  try {
-    // Try WMIP first (primary source)
-    const wmipResults = await fetchWMIPMultipleGauges(gaugeIds)
+  console.log('[API] Fetching water levels for', gaugeIds.length, 'gauges')
 
-    let wmipSuccessCount = 0
-    for (const [gaugeId, result] of wmipResults) {
-      if (result.success && result.data) {
-        // Apply thresholds and calculate status
+  // Helper to check if data is fresh (within last 24 hours)
+  const isDataFresh = (timestamp: string): boolean => {
+    const dataTime = new Date(timestamp).getTime()
+    const now = Date.now()
+    const maxAge = 24 * 60 * 60 * 1000 // 24 hours
+    return (now - dataTime) < maxAge && dataTime <= now
+  }
+
+  try {
+    // Try BOM first (more reliable for current data)
+    console.log('[API] Trying BOM as primary source...')
+    const bomResults = await fetchBOMMultipleGauges(gaugeIds)
+
+    let bomSuccessCount = 0
+    for (const [gaugeId, result] of bomResults) {
+      if (result.success && result.data && isDataFresh(result.data.timestamp)) {
         const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
         const enrichedData: WaterLevel = {
           ...result.data,
           status: calculateStatus(result.data.level, thresholds),
         }
         waterLevelMap.set(gaugeId, enrichedData)
-        wmipSuccessCount++
+        bomSuccessCount++
+
+        // Log high water levels
+        if (result.data.level > 3) {
+          console.log(`[API] BOM high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
+        }
+      } else if (result.data && !isDataFresh(result.data.timestamp)) {
+        console.log(`[API] BOM data stale for ${gaugeId}: ${result.data.timestamp}`)
       }
     }
 
-    if (wmipSuccessCount > 0) {
-      sources.push('wmip')
+    console.log(`[API] BOM returned fresh data for ${bomSuccessCount}/${gaugeIds.length} gauges`)
+
+    if (bomSuccessCount > 0) {
+      sources.push('bom')
     }
 
-    // For gauges without WMIP data, try BOM fallback
+    // For gauges without BOM data, try WMIP fallback
     const missingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
 
     if (missingGaugeIds.length > 0) {
-      const bomResults = await fetchBOMMultipleGauges(missingGaugeIds)
+      console.log(`[API] Trying WMIP for ${missingGaugeIds.length} missing gauges...`)
+      const wmipResults = await fetchWMIPMultipleGauges(missingGaugeIds)
 
-      let bomSuccessCount = 0
-      for (const [gaugeId, result] of bomResults) {
-        if (result.success && result.data) {
+      let wmipSuccessCount = 0
+      for (const [gaugeId, result] of wmipResults) {
+        if (result.success && result.data && isDataFresh(result.data.timestamp)) {
           const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
           const enrichedData: WaterLevel = {
             ...result.data,
             status: calculateStatus(result.data.level, thresholds),
           }
           waterLevelMap.set(gaugeId, enrichedData)
-          bomSuccessCount++
+          wmipSuccessCount++
+
+          if (result.data.level > 3) {
+            console.log(`[API] WMIP high level at ${gaugeId}: ${result.data.level}m (status: ${enrichedData.status})`)
+          }
+        } else if (result.data && !isDataFresh(result.data.timestamp)) {
+          console.log(`[API] WMIP data stale for ${gaugeId}: ${result.data.timestamp}`)
+        } else if (result.error) {
+          console.log(`[API] WMIP error for ${gaugeId}: ${result.error}`)
         }
       }
 
-      if (bomSuccessCount > 0) {
-        sources.push('bom')
+      console.log(`[API] WMIP returned fresh data for ${wmipSuccessCount}/${missingGaugeIds.length} gauges`)
+
+      if (wmipSuccessCount > 0) {
+        sources.push('wmip')
       }
     }
 
-    // If no data from either source, use mock data
+    // Log missing gauges (gauges with no fresh data from any source)
+    const stillMissingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
+    if (stillMissingGaugeIds.length > 0) {
+      console.log(`[API] No fresh data for ${stillMissingGaugeIds.length} gauges:`, stillMissingGaugeIds.join(', '))
+    }
+
+    // If no data from any source, use mock data
     if (waterLevelMap.size === 0) {
       useMockData = true
     }
@@ -105,6 +141,7 @@ export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
 
   // Generate mock data if needed
   if (useMockData) {
+    console.log('[API] Using mock data - no API data available')
     sources.length = 0
     sources.push('mock')
 
@@ -115,6 +152,8 @@ export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
       waterLevelMap.set(station.id, mockLevel)
     }
   }
+
+  console.log(`[API] Response: ${waterLevelMap.size} gauges, sources: ${sources.join(', ')}`)
 
   // Build response
   const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => ({

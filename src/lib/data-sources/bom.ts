@@ -121,16 +121,19 @@ function parseSOS2Response(data: unknown, gaugeId: string): BOMObservation[] {
 
       // Try different result structures
       if (obsData.result !== undefined) {
-        const result = obsData.result as Record<string, unknown>
-        if (typeof result === 'number') {
-          resultValue = result
-        } else if (typeof result.value === 'number') {
-          resultValue = result.value
-        } else if (typeof result.value === 'string') {
-          resultValue = parseFloat(result.value)
-        }
-        if (result && typeof result === 'object' && result.uom) {
-          resultUnit = result.uom as string
+        const rawResult = obsData.result
+        if (typeof rawResult === 'number') {
+          resultValue = rawResult
+        } else if (typeof rawResult === 'object' && rawResult !== null) {
+          const result = rawResult as Record<string, unknown>
+          if (typeof result.value === 'number') {
+            resultValue = result.value
+          } else if (typeof result.value === 'string') {
+            resultValue = parseFloat(result.value)
+          }
+          if (result.uom) {
+            resultUnit = result.uom as string
+          }
         }
       }
 
@@ -463,7 +466,7 @@ export async function checkBOMServiceStatus(): Promise<boolean> {
   }
 }
 
-export default {
+const bomClient = {
   fetchBOMWaterLevel,
   fetchBOMWaterLevelResponse,
   fetchBOMWaterLevels,
@@ -473,3 +476,5 @@ export default {
   fetchBOMHistoryResponse,
   checkBOMServiceStatus,
 }
+
+export default bomClient

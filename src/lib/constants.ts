@@ -1,18 +1,74 @@
-import type { GaugeStation, RiverSystem } from './types'
+import type { GaugeStation, RiverSystem, CameraStation } from './types'
+import { env } from './env'
 
 // Clermont coordinates
 export const CLERMONT_CENTER: [number, number] = [-22.8245, 147.6392]
 export const DEFAULT_ZOOM = 9
 export const BASIN_ZOOM = 7
 
-// Data refresh intervals (ms)
-export const REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes
-export const STALE_DATA_THRESHOLD = 2 * 60 * 60 * 1000 // 2 hours
+// Data refresh intervals (ms) - from environment
+export const REFRESH_INTERVAL = env.refreshInterval
+export const STALE_DATA_THRESHOLD = env.staleThreshold
 
-// API endpoints
-export const WMIP_BASE_URL = 'https://water-monitoring.information.qld.gov.au/cgi/webservice.exe'
-export const BOM_WATERDATA_URL = 'http://www.bom.gov.au/waterdata/services'
-export const BOM_WARNINGS_URL = 'http://www.bom.gov.au/fwo/IDQ60000.warnings_qld.xml'
+// API endpoints - from environment
+export const WMIP_BASE_URL = env.wmipBaseUrl
+export const BOM_WATERDATA_URL = env.bomWaterdataUrl
+export const BOM_WARNINGS_URL = env.bomWarningsUrl
+
+// Application name
+export const APP_NAME = 'GAUGE'
+export const APP_TAGLINE = 'Real-time water levels for the Fitzroy Basin'
+
+// Map tile layers
+export const MAP_LAYERS = {
+  street: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    name: 'Street',
+    hasLabels: false,
+    labelsUrl: '',
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    name: 'Satellite',
+    hasLabels: false,
+    labelsUrl: '',
+  },
+  hybrid: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri | Labels &copy; CartoDB',
+    name: 'Hybrid',
+    hasLabels: true,
+    labelsUrl: 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
+  },
+} as const
+
+export type MapLayerType = keyof typeof MAP_LAYERS
+
+// Data source links for attribution
+export const DATA_SOURCES = [
+  {
+    name: 'Queensland WMIP',
+    url: 'https://water-monitoring.information.qld.gov.au/',
+    description: 'Water Monitoring Information Portal',
+  },
+  {
+    name: 'Bureau of Meteorology',
+    url: 'https://www.bom.gov.au/waterdata/',
+    description: 'Water Data Online',
+  },
+  {
+    name: 'BOM Flood Warnings',
+    url: 'https://www.bom.gov.au/qld/flood/',
+    description: 'Queensland Flood Warnings',
+  },
+  {
+    name: 'QLD Traffic',
+    url: 'https://qldtraffic.qld.gov.au/',
+    description: 'Traffic & Flood Cameras',
+  },
+]
 
 // Status colors
 export const STATUS_COLORS: Record<string, string> = {
@@ -231,6 +287,187 @@ export const QUICK_LINKS = [
   { name: 'Rockhampton', lat: -23.3791, lng: 150.5100 },
   { name: 'Moranbah', lat: -22.0016, lng: 148.0461 },
 ]
+
+// Extended river paths for map overlay (with additional waypoints for better visibility)
+export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
+  clermont: [
+    // Theresa Creek upstream
+    [-22.65, 147.45],
+    [-22.72, 147.52],
+    [-22.7833, 147.5667], // Theresa Creek @ Gregory Hwy
+    [-22.80, 147.60],
+    [-22.8245, 147.6392], // Sandy Creek @ Clermont
+    [-22.86, 147.68],
+    [-22.9000, 147.7000], // Clermont Alpha Rd
+    [-22.95, 147.75],
+    [-23.00, 147.82],
+  ],
+  isaac: [
+    // Isaac River headwaters
+    [-22.55, 148.15],
+    [-22.48, 148.25],
+    [-22.4167, 148.3333], // Isaac River @ Yatton
+    [-22.30, 148.45],
+    [-22.1833, 148.6167], // Isaac River @ Deverill
+    [-22.05, 148.70],
+    [-21.9500, 148.7833], // Connors River @ Pink Lagoon
+    [-21.85, 148.85],
+    [-21.75, 148.95],
+  ],
+  nogoa: [
+    // Nogoa River upstream (towards Emerald)
+    [-23.75, 147.65],
+    [-23.68, 147.72],
+    [-23.6000, 147.8000], // Retreat Creek @ Dunrobin
+    [-23.56, 147.87],
+    [-23.5167, 147.9333], // Nogoa River @ Craigmore
+    [-23.48, 148.02],
+    [-23.4500, 148.1000], // Nogoa River @ Duck Ponds
+    [-23.42, 148.18],
+    [-23.40, 148.28],
+  ],
+  mackenzie: [
+    // Mackenzie River (Nogoa to Fitzroy)
+    [-23.50, 148.35],
+    [-23.4500, 148.5000], // Mackenzie River @ Rileys Crossing
+    [-23.40, 148.65],
+    [-23.3333, 148.8333], // Mackenzie River @ Coolmaringa
+    [-23.25, 149.10],
+    [-23.1833, 149.3500], // Mackenzie River @ Bingegang
+    [-23.20, 149.55],
+    [-23.25, 149.75],
+  ],
+  comet: [
+    // Comet River
+    [-23.92, 148.15],
+    [-23.8000, 148.3000], // Comet River @ The Lake
+    [-23.70, 148.42],
+    [-23.6000, 148.5500], // Comet River @ Comet Weir
+    [-23.50, 148.62],
+    [-23.42, 148.70],
+  ],
+  fitzroy: [
+    // Fitzroy River (to coast)
+    [-23.30, 149.70],
+    [-23.3833, 149.9167], // Fitzroy River @ The Gap
+    [-23.28, 150.12],
+    [-23.1333, 150.3667], // Fitzroy River @ Yaamba
+    [-23.25, 150.42],
+    [-23.3833, 150.5000], // Fitzroy River @ Rockhampton
+    [-23.42, 150.58],
+    [-23.50, 150.68],
+  ],
+}
+
+// Camera stations for flood/traffic monitoring
+export const CAMERA_STATIONS: CameraStation[] = [
+  // Clermont Area Cameras
+  {
+    id: 'cam-clermont-crossing',
+    name: 'Clermont Flood Crossing',
+    description: 'Sandy Creek crossing near town center',
+    lat: -22.8220,
+    lng: 147.6350,
+    riverSystem: 'clermont',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/clermont_crossing.jpg',
+    videoUrl: 'https://qldtraffic.qld.gov.au/video/clermont_crossing.m3u8',
+    source: 'tmr',
+  },
+  {
+    id: 'cam-theresa-bridge',
+    name: 'Theresa Creek Bridge',
+    description: 'Gregory Highway bridge over Theresa Creek',
+    lat: -22.7850,
+    lng: 147.5700,
+    riverSystem: 'clermont',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/theresa_bridge.jpg',
+    source: 'tmr',
+  },
+  // Emerald/Nogoa Cameras
+  {
+    id: 'cam-emerald-weir',
+    name: 'Emerald Weir',
+    description: 'Nogoa River at Emerald Weir',
+    lat: -23.5200,
+    lng: 148.1550,
+    riverSystem: 'nogoa',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/emerald_weir.jpg',
+    videoUrl: 'https://qldtraffic.qld.gov.au/video/emerald_weir.m3u8',
+    source: 'council',
+  },
+  {
+    id: 'cam-fairbairn-dam',
+    name: 'Fairbairn Dam Spillway',
+    description: 'Fairbairn Dam spillway and downstream',
+    lat: -23.4600,
+    lng: 148.0800,
+    riverSystem: 'nogoa',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/fairbairn_dam.jpg',
+    videoUrl: 'https://qldtraffic.qld.gov.au/video/fairbairn_dam.m3u8',
+    source: 'council',
+  },
+  // Mackenzie Cameras
+  {
+    id: 'cam-bingegang-crossing',
+    name: 'Bingegang Crossing',
+    description: 'Mackenzie River at Bingegang',
+    lat: -23.1800,
+    lng: 149.3450,
+    riverSystem: 'mackenzie',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/bingegang.jpg',
+    source: 'tmr',
+  },
+  // Fitzroy/Rockhampton Cameras
+  {
+    id: 'cam-fitzroy-barrage',
+    name: 'Fitzroy River Barrage',
+    description: 'Fitzroy Barrage at Rockhampton',
+    lat: -23.3900,
+    lng: 150.5050,
+    riverSystem: 'fitzroy',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/fitzroy_barrage.jpg',
+    videoUrl: 'https://qldtraffic.qld.gov.au/video/fitzroy_barrage.m3u8',
+    source: 'council',
+  },
+  {
+    id: 'cam-yaamba-bridge',
+    name: 'Yaamba Road Bridge',
+    description: 'Bruce Highway crossing at Yaamba',
+    lat: -23.1350,
+    lng: 150.3700,
+    riverSystem: 'fitzroy',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/yaamba_bridge.jpg',
+    source: 'tmr',
+  },
+  {
+    id: 'cam-rockhampton-quay',
+    name: 'Rockhampton Quay Street',
+    description: 'Quay Street riverside view',
+    lat: -23.3780,
+    lng: 150.5100,
+    riverSystem: 'fitzroy',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/rocky_quay.jpg',
+    videoUrl: 'https://qldtraffic.qld.gov.au/video/rocky_quay.m3u8',
+    source: 'council',
+  },
+  // Isaac River Cameras
+  {
+    id: 'cam-moranbah-crossing',
+    name: 'Moranbah Flood Crossing',
+    description: 'Isaac River at Moranbah',
+    lat: -22.0050,
+    lng: 148.0500,
+    riverSystem: 'isaac',
+    imageUrl: 'https://qldtraffic.qld.gov.au/images/cameras/moranbah.jpg',
+    source: 'tmr',
+  },
+]
+
+// Water overlay layer for enhanced river visibility
+export const WATER_OVERLAY = {
+  url: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+  attribution: 'Map data: &copy; OpenSeaMap contributors',
+}
 
 // Emergency resources
 export const EMERGENCY_RESOURCES = [

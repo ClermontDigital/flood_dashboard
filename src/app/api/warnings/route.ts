@@ -48,7 +48,7 @@ export async function GET(): Promise<NextResponse<WarningsResponse>> {
   try {
     const bomResult = await fetchBOMWarnings()
 
-    if (bomResult && bomResult.length >= 0) {
+    if (bomResult) {
       warnings = bomResult
 
       // Filter to only include relevant areas

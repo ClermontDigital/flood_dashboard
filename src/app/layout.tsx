@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Clermont Flood Dashboard',
-  description: 'Real-time flood warning dashboard for Clermont, QLD and the Fitzroy Basin',
+  title: 'GAUGE - Fitzroy Basin Flood Dashboard',
+  description: 'Real-time water level monitoring and flood warnings for Clermont, QLD and the Fitzroy Basin region',
   manifest: '/manifest.json',
 }
 

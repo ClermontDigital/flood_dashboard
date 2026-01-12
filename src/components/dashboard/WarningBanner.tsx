@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type { FloodWarning } from '@/lib/types'
 
@@ -111,15 +111,18 @@ export function WarningBanner({ warnings, onDismiss }: WarningBannerProps) {
   const [isDismissed, setIsDismissed] = useState(false)
   const [dismissedWarningIds, setDismissedWarningIds] = useState<Set<string>>(new Set())
 
-  // Get the highest severity level from all warnings
-  const getHighestLevel = useCallback(() => {
+  // Get the highest severity level from all warnings - memoized
+  const highestLevel = useMemo(() => {
     if (warnings.some((w) => w.level === 'major')) return 'major'
     if (warnings.some((w) => w.level === 'moderate')) return 'moderate'
     return 'minor'
   }, [warnings])
 
-  // Check for new warnings that weren't previously dismissed
-  const hasNewWarnings = warnings.some((w) => !dismissedWarningIds.has(w.id))
+  // Check for new warnings that weren't previously dismissed - memoized
+  const hasNewWarnings = useMemo(
+    () => warnings.some((w) => !dismissedWarningIds.has(w.id)),
+    [warnings, dismissedWarningIds]
+  )
 
   // Reset dismissed state if there are new warnings
   useEffect(() => {
@@ -138,8 +141,6 @@ export function WarningBanner({ warnings, onDismiss }: WarningBannerProps) {
   if (warnings.length === 0 || isDismissed) {
     return null
   }
-
-  const highestLevel = getHighestLevel()
   const styles = levelConfig[highestLevel]
 
   return (

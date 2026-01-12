@@ -33,3 +33,14 @@ export {
   hasActiveMajorWarnings,
   getHighestWarningLevel,
 } from './warnings'
+
+export {
+  fetchRainfall,
+  fetchRainfallForGauges,
+  fetchRegionalRainfall,
+  getRainfallIntensity,
+  getRainfallRisk,
+  type RainfallPoint,
+  type RainfallSummary,
+  type RainfallResponse,
+} from './rainfall'

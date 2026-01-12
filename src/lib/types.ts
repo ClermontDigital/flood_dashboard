@@ -117,3 +117,17 @@ export interface UserPreferences {
   mapZoom: number
   mapCenter: [number, number]
 }
+
+// Camera station for flood/traffic monitoring
+export interface CameraStation {
+  id: string
+  name: string
+  description: string
+  lat: number
+  lng: number
+  riverSystem?: RiverSystem
+  imageUrl: string // Live image URL
+  videoUrl?: string // Optional video stream URL
+  source: 'tmr' | 'council' | 'bom' // Transport and Main Roads, Council, or BOM
+  lastUpdated?: string
+}

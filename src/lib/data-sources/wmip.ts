@@ -2,7 +2,7 @@
  * Queensland Water Monitoring Information Portal (WMIP) API Client
  *
  * Fetches water level data from the Queensland Government's WMIP system,
- * which uses the Kisters WISKI web services format.
+ * using the JSON POST webservice API format (version 2).
  *
  * @see https://water-monitoring.information.qld.gov.au/
  */
@@ -13,70 +13,27 @@ import { generateMockWaterLevel, calculateTrend } from '@/lib/utils'
 
 /**
  * Gauge IDs for the Clermont Flood Dashboard monitoring network
+ * Updated to use active stations with verified data availability
  */
 export const MONITORED_GAUGE_IDS = [
-  '130212A', // Theresa Creek @ Gregory Hwy
   '130207A', // Sandy Creek @ Clermont
-  '120311A', // Clermont Alpha Rd
+  '130210A', // Theresa Creek @ Valeria
+  '130206A', // Theresa Creek @ Gregory Highway
   '130401A', // Isaac River @ Yatton
   '130410A', // Isaac River @ Deverill
   '130408A', // Connors River @ Pink Lagoon
   '130209A', // Nogoa River @ Craigmore
   '130219A', // Nogoa River @ Duck Ponds
-  '130204A', // Retreat Creek @ Dunrobin
+  '130230A', // Nogoa River @ Bridge Flats
   '130106A', // Mackenzie River @ Bingegang
   '130105B', // Mackenzie River @ Coolmaringa
   '130113A', // Mackenzie River @ Rileys Crossing
   '130504A', // Comet River @ Comet Weir
-  '130502A', // Comet River @ The Lake
-  '130004A', // Fitzroy River @ The Gap
+  '130005A', // Fitzroy River @ The Gap
   '130003A', // Fitzroy River @ Yaamba
-  '130005A', // Fitzroy River @ Rockhampton
+  '1300073', // Fitzroy River @ Barrage (Rockhampton)
+  '130010A', // Fitzroy River @ Hanrahan's Crossing
 ] as const
-
-/**
- * WMIP API response types for Kisters WISKI web services
- */
-interface WMIPTimeSeriesValue {
-  Timestamp: string
-  Value: number
-  Quality: number
-}
-
-interface WMIPTimeSeries {
-  ts_id: string
-  ts_name: string
-  station_id: string
-  station_name: string
-  parametertype_name: string
-  ts_unitname: string
-  data: WMIPTimeSeriesValue[]
-}
-
-interface WMIPGetTimeSeriesValuesResponse {
-  type: string
-  version: string
-  rows: number
-  cols: number
-  data: WMIPTimeSeries[]
-}
-
-interface WMIPStationInfo {
-  station_id: string
-  station_name: string
-  station_latitude: number
-  station_longitude: number
-  ts_id: string
-  ts_name: string
-  parametertype_name: string
-}
-
-interface WMIPGetStationListResponse {
-  type: string
-  version: string
-  rows: number
-  data: WMIPStationInfo[]
-}
 
 /**
  * Response wrapper for WMIP API calls
@@ -97,101 +54,212 @@ export interface WMIPHistoryResponse {
 }
 
 /**
- * API request timeout in milliseconds
+ * WMIP trace data point
  */
-const API_TIMEOUT = 10000
+interface WMIPTracePoint {
+  v: string  // value
+  t: number  // timestamp (format: YYYYMMDDHHmmss)
+  q: number  // quality code
+}
 
 /**
- * Creates an AbortController with timeout
- *
- * @param timeoutMs - Timeout duration in milliseconds
- * @returns AbortController instance
+ * WMIP trace response
  */
-function createTimeoutController(timeoutMs: number): AbortController {
+interface WMIPTraceResponse {
+  error_num: number
+  error_msg?: string
+  site: string
+  trace: WMIPTracePoint[]
+  site_details?: {
+    name: string
+    short_name: string
+    latitude: string
+    longitude: string
+    timezone: string
+  }
+}
+
+/**
+ * WMIP variable info
+ */
+interface WMIPVariable {
+  variable: string
+  name: string
+  units: string
+  period_start: string
+  period_end: string
+}
+
+const API_TIMEOUT = 15000
+
+/**
+ * Parses WMIP timestamp format (YYYYMMDDHHmmss) to ISO string
+ */
+function parseWMIPTimestamp(wmipTime: number): string {
+  const str = wmipTime.toString()
+  if (str.length !== 14) return new Date().toISOString()
+
+  const year = str.slice(0, 4)
+  const month = str.slice(4, 6)
+  const day = str.slice(6, 8)
+  const hour = str.slice(8, 10)
+  const minute = str.slice(10, 12)
+  const second = str.slice(12, 14)
+
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+10:00`).toISOString()
+}
+
+/**
+ * Formats date to WMIP timestamp format
+ */
+function toWMIPTimestamp(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+}
+
+/**
+ * Makes a POST request to the WMIP API
+ * Note: Different WMIP functions require different API versions:
+ * - get_site_list: version 1
+ * - get_variable_list: version 1
+ * - get_ts_traces: version 2
+ */
+async function wmipPost<T>(functionName: string, params: Record<string, unknown>, version: string = '2'): Promise<T> {
   const controller = new AbortController()
-  setTimeout(() => controller.abort(), timeoutMs)
-  return controller
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
+
+  try {
+    const response = await fetch(WMIP_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: functionName,
+        version,
+        params,
+      }),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      throw new Error(`WMIP HTTP ${response.status}`)
+    }
+
+    return await response.json()
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 /**
- * Builds a WMIP API URL with the specified parameters using Kisters WISKI format
- *
- * @param action - The API action (e.g., 'getTimeseriesValues', 'getStationList')
- * @param params - Additional query parameters
- * @returns The complete API URL
+ * Gets available variables and their date ranges for a gauge
  */
-function buildWMIPUrl(action: string, params: Record<string, string>): string {
-  const url = new URL(WMIP_BASE_URL)
-  url.searchParams.set('service', 'kisters')
-  url.searchParams.set('type', 'queryServices')
-  url.searchParams.set('request', action)
-  url.searchParams.set('format', 'json')
+async function getVariableInfo(gaugeId: string): Promise<WMIPVariable | null> {
+  try {
+    const response = await wmipPost<{
+      error_num: number
+      return?: { sites?: Array<{ variables?: WMIPVariable[] }> }
+    }>('get_variable_list', {
+      site_list: gaugeId,
+      datasource: 'A',
+    }, '1')  // get_variable_list requires version 1
 
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value)
+    if (response.error_num !== 0) return null
+
+    const variables = response.return?.sites?.[0]?.variables || []
+    // Find Stream Water Level (variable 100.00)
+    return variables.find(v => v.variable === '100.00') || null
+  } catch {
+    return null
   }
-
-  return url.toString()
 }
 
 /**
- * Determines the trend from a series of readings
- *
- * @param readings - Array of readings with timestamp and value
- * @returns The calculated trend and change rate
+ * Fetches water level data for a specific date range
  */
-function determineTrend(readings: WMIPTimeSeriesValue[]): { trend: Trend; changeRate: number } {
-  if (readings.length < 2) {
+async function fetchWaterLevelData(
+  gaugeId: string,
+  startTime: string,
+  endTime: string
+): Promise<WMIPTraceResponse | null> {
+  try {
+    const response = await wmipPost<{
+      error_num: number
+      error_msg?: string
+      return?: { traces?: WMIPTraceResponse[] }
+    }>('get_ts_traces', {
+      site_list: gaugeId,
+      datasource: 'A',
+      start_time: startTime,
+      end_time: endTime,
+      varfrom: '100.00',
+      varto: '100.00',
+      data_type: 'mean',
+      interval: 'hour',
+      multiplier: '1',
+    })
+
+    if (response.error_num !== 0) {
+      console.log(`WMIP error for ${gaugeId}: ${response.error_msg}`)
+      return null
+    }
+
+    const trace = response.return?.traces?.[0]
+    if (!trace || trace.error_num !== 0 || !trace.trace?.length) {
+      return null
+    }
+
+    return trace
+  } catch (error) {
+    console.error(`WMIP fetch error for ${gaugeId}:`, error)
+    return null
+  }
+}
+
+/**
+ * Calculates trend from trace data
+ */
+function calculateTrendFromTrace(trace: WMIPTracePoint[]): { trend: Trend; changeRate: number } {
+  if (trace.length < 2) {
     return { trend: 'stable', changeRate: 0 }
   }
 
-  // Sort by timestamp descending (most recent first)
-  const sorted = [...readings].sort(
-    (a, b) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime()
-  )
+  const current = parseFloat(trace[trace.length - 1].v)
+  const previous = parseFloat(trace[Math.max(0, trace.length - 4)].v)
 
-  const current = sorted[0]
-  // Use reading from approximately 1 hour ago if available (4 readings at 15-min intervals)
-  const previousIndex = Math.min(sorted.length - 1, 4)
-  const previous = sorted[previousIndex]
-
-  const currentTime = new Date(current.Timestamp).getTime()
-  const previousTime = new Date(previous.Timestamp).getTime()
-  const hoursDiff = (currentTime - previousTime) / (1000 * 60 * 60)
-
-  if (hoursDiff === 0) {
-    return { trend: 'stable', changeRate: 0 }
-  }
-
-  const changeRate = (current.Value - previous.Value) / hoursDiff
-  const trend = calculateTrend(current.Value, previous.Value, hoursDiff)
+  const changeRate = current - previous
+  const trend = calculateTrend(current, previous, 1)
 
   return { trend, changeRate }
 }
 
 /**
+ * Known flood thresholds for specific gauges (from BOM flood class levels)
+ */
+const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
+  '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 },   // Sandy Creek @ Clermont
+  '130210A': { minor: 3.5, moderate: 5.0, major: 7.0 },   // Theresa Creek @ Valeria
+  '130206A': { minor: 3.0, moderate: 4.5, major: 6.0 },   // Theresa Creek @ Gregory Hwy
+  '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 },  // Fitzroy @ The Gap
+  '130003A': { minor: 6.5, moderate: 8.0, major: 9.5 },   // Fitzroy @ Yaamba
+  '1300073': { minor: 6.0, moderate: 7.5, major: 9.0 },   // Fitzroy @ Barrage
+  '130106A': { minor: 7.0, moderate: 9.0, major: 11.0 },  // Mackenzie @ Bingegang
+  '130105B': { minor: 6.5, moderate: 8.5, major: 10.5 },  // Mackenzie @ Coolmaringa
+  '130410A': { minor: 5.5, moderate: 7.0, major: 9.0 },   // Isaac @ Deverill
+  '130401A': { minor: 5.0, moderate: 6.5, major: 8.5 },   // Isaac @ Yatton
+  '130219A': { minor: 4.5, moderate: 6.0, major: 8.0 },   // Nogoa @ Duck Ponds
+  '130209A': { minor: 5.0, moderate: 7.0, major: 9.0 },   // Nogoa @ Craigmore
+  '130504A': { minor: 5.0, moderate: 7.0, major: 9.0 },   // Comet @ Comet Weir
+}
+
+/**
  * Determines flood status based on water level
- * Uses station-specific thresholds when available, otherwise defaults
- *
- * @param level - The water level in meters
- * @param gaugeId - The gauge identifier for station-specific thresholds
- * @returns The flood status
  */
 function determineStatus(level: number, gaugeId: string): WaterLevel['status'] {
-  // Known thresholds for specific gauges (from BOM flood class levels)
-  const knownThresholds: Record<string, FloodThresholds> = {
-    '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 },   // Sandy Creek @ Clermont
-    '130212A': { minor: 3.0, moderate: 4.5, major: 6.0 },   // Theresa Creek @ Gregory Hwy
-    '130004A': { minor: 7.0, moderate: 8.5, major: 10.0 },  // Fitzroy @ The Gap
-    '130003A': { minor: 6.5, moderate: 8.0, major: 9.5 },   // Fitzroy @ Yaamba
-    '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 },  // Fitzroy @ Rockhampton
-  }
-
-  const thresholds = knownThresholds[gaugeId] || {
-    minor: 4.0,
-    moderate: 6.0,
-    major: 8.0,
-  }
+  const thresholds = FLOOD_THRESHOLDS[gaugeId] || { minor: 4.0, moderate: 6.0, major: 8.0 }
 
   if (level >= thresholds.major) return 'danger'
   if (level >= thresholds.moderate) return 'warning'
@@ -200,505 +268,174 @@ function determineStatus(level: number, gaugeId: string): WaterLevel['status'] {
 }
 
 /**
- * Fetches current water level readings for specified gauges from WMIP
- *
- * @param gaugeIds - Array of gauge station IDs to fetch
- * @returns Array of water level readings, or null values for failed fetches
- *
- * @example
- * ```typescript
- * const readings = await fetchCurrentWaterLevels(['130207A', '130212A'])
- * readings.forEach(reading => {
- *   if (reading) {
- *     console.log(`${reading.gaugeId}: ${reading.level}m`)
- *   }
- * })
- * ```
- */
-export async function fetchCurrentWaterLevels(
-  gaugeIds: string[] = [...MONITORED_GAUGE_IDS]
-): Promise<(WaterLevel | null)[]> {
-  const results: (WaterLevel | null)[] = []
-
-  // Fetch data for each gauge
-  for (const gaugeId of gaugeIds) {
-    try {
-      const reading = await fetchGaugeReading(gaugeId)
-      results.push(reading)
-    } catch (error) {
-      console.error(`Failed to fetch water level for gauge ${gaugeId}:`, error)
-      // Return mock data in development if API fails
-      if (process.env.NODE_ENV === 'development') {
-        console.warn(`Using mock data for gauge ${gaugeId}`)
-        results.push(generateMockWaterLevel(gaugeId))
-      } else {
-        results.push(null)
-      }
-    }
-  }
-
-  return results
-}
-
-/**
- * Fetches the current reading for a single gauge
- *
- * @param gaugeId - The gauge station ID
- * @returns The water level reading or null if unavailable
- */
-export async function fetchGaugeReading(gaugeId: string): Promise<WaterLevel | null> {
-  try {
-    const controller = createTimeoutController(API_TIMEOUT)
-
-    // Get the last 2 hours of data to calculate trend
-    const now = new Date()
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000)
-
-    const url = buildWMIPUrl('getTimeseriesValues', {
-      ts_id: `${gaugeId}.Water Level.15min.Master`,
-      from: twoHoursAgo.toISOString(),
-      to: now.toISOString(),
-      returnfields: 'Timestamp,Value,Quality',
-    })
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`WMIP API returned ${response.status}: ${response.statusText}`)
-    }
-
-    const data: WMIPGetTimeSeriesValuesResponse = await response.json()
-
-    if (!data.data || data.data.length === 0 || !data.data[0].data || data.data[0].data.length === 0) {
-      console.warn(`No data available for gauge ${gaugeId}`)
-      return null
-    }
-
-    const timeSeries = data.data[0]
-    const readings = timeSeries.data
-
-    // Get the most recent reading
-    const sortedReadings = [...readings].sort(
-      (a, b) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime()
-    )
-    const latestReading = sortedReadings[0]
-
-    // Calculate trend
-    const { trend, changeRate } = determineTrend(readings)
-
-    // Determine status
-    const status = determineStatus(latestReading.Value, gaugeId)
-
-    return {
-      gaugeId,
-      level: latestReading.Value,
-      unit: timeSeries.ts_unitname || 'm',
-      trend,
-      changeRate,
-      status,
-      timestamp: latestReading.Timestamp,
-      source: 'wmip',
-    }
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.error(`Request timeout for gauge ${gaugeId}`)
-    } else {
-      console.error(`Error fetching gauge ${gaugeId}:`, error)
-    }
-
-    // Return mock data in development
-    if (process.env.NODE_ENV === 'development') {
-      console.warn(`Using mock data for gauge ${gaugeId}`)
-      return generateMockWaterLevel(gaugeId)
-    }
-
-    return null
-  }
-}
-
-/**
- * Fetches 24-hour historical data for a gauge
- *
- * @param gaugeId - The gauge station ID
- * @returns Array of historical data points or null if unavailable
- *
- * @example
- * ```typescript
- * const history = await fetch24HourHistory('130207A')
- * if (history) {
- *   console.log(`Retrieved ${history.length} data points`)
- * }
- * ```
- */
-export async function fetch24HourHistory(gaugeId: string): Promise<HistoryPoint[] | null> {
-  try {
-    const controller = createTimeoutController(API_TIMEOUT)
-
-    const now = new Date()
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-
-    const url = buildWMIPUrl('getTimeseriesValues', {
-      ts_id: `${gaugeId}.Water Level.15min.Master`,
-      from: twentyFourHoursAgo.toISOString(),
-      to: now.toISOString(),
-      returnfields: 'Timestamp,Value,Quality',
-    })
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`WMIP API returned ${response.status}: ${response.statusText}`)
-    }
-
-    const data: WMIPGetTimeSeriesValuesResponse = await response.json()
-
-    if (!data.data || data.data.length === 0 || !data.data[0].data) {
-      console.warn(`No historical data available for gauge ${gaugeId}`)
-      return null
-    }
-
-    const readings = data.data[0].data
-
-    // Convert to HistoryPoint format and sort chronologically
-    const historyPoints: HistoryPoint[] = readings
-      .map((reading) => ({
-        timestamp: reading.Timestamp,
-        level: reading.Value,
-      }))
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-
-    return historyPoints
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.error(`Request timeout for historical data for gauge ${gaugeId}`)
-    } else {
-      console.error(`Error fetching historical data for gauge ${gaugeId}:`, error)
-    }
-
-    // Return mock historical data in development
-    if (process.env.NODE_ENV === 'development') {
-      console.warn(`Using mock historical data for gauge ${gaugeId}`)
-      return generateMockHistory(gaugeId)
-    }
-
-    return null
-  }
-}
-
-/**
- * Fetches historical data for a specified time range
- *
- * @param gaugeId - The gauge station ID
- * @param fromDate - Start date for the range
- * @param toDate - End date for the range
- * @returns Array of historical data points or null if unavailable
- */
-export async function fetchHistoricalRange(
-  gaugeId: string,
-  fromDate: Date,
-  toDate: Date
-): Promise<HistoryPoint[] | null> {
-  try {
-    const controller = createTimeoutController(API_TIMEOUT)
-
-    const url = buildWMIPUrl('getTimeseriesValues', {
-      ts_id: `${gaugeId}.Water Level.15min.Master`,
-      from: fromDate.toISOString(),
-      to: toDate.toISOString(),
-      returnfields: 'Timestamp,Value,Quality',
-    })
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`WMIP API returned ${response.status}: ${response.statusText}`)
-    }
-
-    const data: WMIPGetTimeSeriesValuesResponse = await response.json()
-
-    if (!data.data || data.data.length === 0 || !data.data[0].data) {
-      console.warn(`No historical data available for gauge ${gaugeId} in specified range`)
-      return null
-    }
-
-    const readings = data.data[0].data
-
-    const historyPoints: HistoryPoint[] = readings
-      .map((reading) => ({
-        timestamp: reading.Timestamp,
-        level: reading.Value,
-      }))
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-
-    return historyPoints
-  } catch (error) {
-    console.error(`Error fetching historical range for gauge ${gaugeId}:`, error)
-    return null
-  }
-}
-
-/**
- * Fetches water levels for all monitored gauges
- *
- * @returns Map of gauge IDs to their water level readings
- */
-export async function fetchAllMonitoredGauges(): Promise<Map<string, WaterLevel | null>> {
-  const results = new Map<string, WaterLevel | null>()
-
-  const readings = await fetchCurrentWaterLevels([...MONITORED_GAUGE_IDS])
-
-  MONITORED_GAUGE_IDS.forEach((gaugeId, index) => {
-    results.set(gaugeId, readings[index])
-  })
-
-  return results
-}
-
-/**
- * Batch fetches water levels for multiple gauges efficiently
- * Uses parallel requests with rate limiting
- *
- * @param gaugeIds - Array of gauge station IDs
- * @param batchSize - Number of concurrent requests (default: 5)
- * @returns Map of gauge IDs to their water level readings
- */
-export async function batchFetchWaterLevels(
-  gaugeIds: string[],
-  batchSize: number = 5
-): Promise<Map<string, WaterLevel | null>> {
-  const results = new Map<string, WaterLevel | null>()
-
-  // Process in batches to avoid overwhelming the API
-  for (let i = 0; i < gaugeIds.length; i += batchSize) {
-    const batch = gaugeIds.slice(i, i + batchSize)
-    const batchPromises = batch.map((gaugeId) => fetchGaugeReading(gaugeId))
-    const batchResults = await Promise.all(batchPromises)
-
-    batch.forEach((gaugeId, index) => {
-      results.set(gaugeId, batchResults[index])
-    })
-
-    // Small delay between batches to be respectful to the API
-    if (i + batchSize < gaugeIds.length) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-  }
-
-  return results
-}
-
-/**
- * Checks if the WMIP API is available
- *
- * @returns True if the API is responding, false otherwise
- */
-export async function checkWMIPAvailability(): Promise<boolean> {
-  try {
-    const controller = createTimeoutController(5000)
-
-    const url = buildWMIPUrl('getStationList', {
-      station_id: MONITORED_GAUGE_IDS[0],
-    })
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    return response.ok
-  } catch {
-    return false
-  }
-}
-
-/**
- * Generates mock historical data for development purposes
- *
- * @param gaugeId - The gauge station ID
- * @returns Array of mock historical data points
- */
-function generateMockHistory(gaugeId: string): HistoryPoint[] {
-  const points: HistoryPoint[] = []
-  const now = new Date()
-  const baseLevel = 2 + Math.random() * 2
-
-  // Generate 96 points (15-minute intervals over 24 hours)
-  for (let i = 96; i >= 0; i--) {
-    const timestamp = new Date(now.getTime() - i * 15 * 60 * 1000)
-    // Add some realistic variation with sine wave pattern
-    const variation = Math.sin(i / 10) * 0.5 + (Math.random() - 0.5) * 0.2
-    points.push({
-      timestamp: timestamp.toISOString(),
-      level: Math.max(0, baseLevel + variation),
-    })
-  }
-
-  return points
-}
-
-/**
- * Gets station information from WMIP
- *
- * @param gaugeId - The gauge station ID
- * @returns Station information or null if unavailable
- */
-export async function getStationInfo(gaugeId: string): Promise<WMIPStationInfo | null> {
-  try {
-    const controller = createTimeoutController(API_TIMEOUT)
-
-    const url = buildWMIPUrl('getStationList', {
-      station_id: gaugeId,
-      returnfields: 'station_id,station_name,station_latitude,station_longitude,ts_id,ts_name,parametertype_name',
-    })
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`WMIP API returned ${response.status}: ${response.statusText}`)
-    }
-
-    const data: WMIPGetStationListResponse = await response.json()
-
-    if (!data.data || data.data.length === 0) {
-      return null
-    }
-
-    return data.data[0]
-  } catch (error) {
-    console.error(`Error fetching station info for ${gaugeId}:`, error)
-    return null
-  }
-}
-
-/**
- * Fetches flood thresholds for a gauge
- * Returns known thresholds from BOM flood class levels
- *
- * @param gaugeId - The gauge station ID
- * @returns Flood thresholds or null if not available
- */
-export async function fetchWMIPThresholds(gaugeId: string): Promise<FloodThresholds | null> {
-  // Known thresholds for specific gauges (from BOM flood class levels)
-  const knownThresholds: Record<string, FloodThresholds> = {
-    '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 },   // Sandy Creek @ Clermont
-    '130212A': { minor: 3.0, moderate: 4.5, major: 6.0 },   // Theresa Creek @ Gregory Hwy
-    '120311A': { minor: 3.5, moderate: 5.0, major: 6.5 },   // Clermont Alpha Rd
-    '130401A': { minor: 5.0, moderate: 7.0, major: 9.0 },   // Isaac River @ Yatton
-    '130410A': { minor: 6.0, moderate: 8.0, major: 10.0 },  // Isaac River @ Deverill
-    '130408A': { minor: 5.5, moderate: 7.5, major: 9.5 },   // Connors River @ Pink Lagoon
-    '130209A': { minor: 5.0, moderate: 7.0, major: 9.0 },   // Nogoa River @ Craigmore
-    '130219A': { minor: 4.5, moderate: 6.5, major: 8.5 },   // Nogoa River @ Duck Ponds
-    '130204A': { minor: 3.5, moderate: 5.0, major: 6.5 },   // Retreat Creek @ Dunrobin
-    '130106A': { minor: 8.0, moderate: 10.0, major: 12.0 }, // Mackenzie River @ Bingegang
-    '130105B': { minor: 7.0, moderate: 9.0, major: 11.0 },  // Mackenzie River @ Coolmaringa
-    '130113A': { minor: 6.0, moderate: 8.0, major: 10.0 },  // Mackenzie River @ Rileys Crossing
-    '130504A': { minor: 5.0, moderate: 7.0, major: 9.0 },   // Comet River @ Comet Weir
-    '130502A': { minor: 4.5, moderate: 6.5, major: 8.5 },   // Comet River @ The Lake
-    '130004A': { minor: 7.0, moderate: 8.5, major: 10.0 },  // Fitzroy @ The Gap
-    '130003A': { minor: 6.5, moderate: 8.0, major: 9.5 },   // Fitzroy @ Yaamba
-    '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 },  // Fitzroy @ Rockhampton
-  }
-
-  return knownThresholds[gaugeId] || null
-}
-
-/**
- * Legacy function for backwards compatibility
- * Wraps fetchGaugeReading in the WMIPResponse format
- *
- * @param gaugeId - The gauge station ID
- * @returns WMIPResponse with water level data
+ * Fetches current water level for a single gauge
  */
 export async function fetchWMIPWaterLevel(gaugeId: string): Promise<WMIPResponse> {
   try {
-    const data = await fetchGaugeReading(gaugeId)
-    return {
-      success: data !== null,
-      data,
-      error: data === null ? 'No data available' : undefined,
+    // First get the available date range
+    const varInfo = await getVariableInfo(gaugeId)
+
+    if (!varInfo) {
+      console.log(`No variable info available for gauge ${gaugeId}`)
+      return { success: false, data: null, error: 'No data available' }
     }
+
+    // Parse the period end date (format: YYYYMMDDHHmmss)
+    const periodEnd = varInfo.period_end
+    if (!periodEnd) {
+      return { success: false, data: null, error: 'No period end date' }
+    }
+
+    // Calculate start time (24 hours before period end)
+    const endYear = parseInt(periodEnd.slice(0, 4))
+    const endMonth = parseInt(periodEnd.slice(4, 6)) - 1
+    const endDay = parseInt(periodEnd.slice(6, 8))
+    const endHour = parseInt(periodEnd.slice(8, 10))
+    const endMinute = parseInt(periodEnd.slice(10, 12))
+    const endSecond = parseInt(periodEnd.slice(12, 14))
+
+    const endDate = new Date(endYear, endMonth, endDay, endHour, endMinute, endSecond)
+    const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000)
+
+    const startTime = toWMIPTimestamp(startDate)
+    const endTime = periodEnd
+
+    // Fetch the trace data
+    const trace = await fetchWaterLevelData(gaugeId, startTime, endTime)
+
+    if (!trace || !trace.trace?.length) {
+      return { success: false, data: null, error: 'No trace data' }
+    }
+
+    const latestPoint = trace.trace[trace.trace.length - 1]
+    const level = parseFloat(latestPoint.v)
+    const timestamp = parseWMIPTimestamp(latestPoint.t)
+    const { trend, changeRate } = calculateTrendFromTrace(trace.trace)
+
+    const waterLevel: WaterLevel = {
+      gaugeId,
+      level,
+      unit: 'm',
+      timestamp,
+      trend,
+      changeRate,
+      status: determineStatus(level, gaugeId),
+      source: 'wmip',
+    }
+
+    return { success: true, data: waterLevel }
   } catch (error) {
-    return {
-      success: false,
-      data: null,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }
+    console.error(`WMIP error for gauge ${gaugeId}:`, error)
+    return { success: false, data: null, error: String(error) }
   }
 }
 
 /**
- * Legacy function for backwards compatibility
- * Wraps fetch24HourHistory in the WMIPHistoryResponse format
- *
- * @param gaugeId - The gauge station ID
- * @param hoursBack - Number of hours of history to fetch (default: 24)
- * @returns WMIPHistoryResponse with historical data
+ * Fetches historical water level data for a gauge
  */
 export async function fetchWMIPHistory(
   gaugeId: string,
   hoursBack: number = 24
 ): Promise<WMIPHistoryResponse> {
   try {
-    const now = new Date()
-    const fromDate = new Date(now.getTime() - hoursBack * 60 * 60 * 1000)
+    const varInfo = await getVariableInfo(gaugeId)
 
-    const data = await fetchHistoricalRange(gaugeId, fromDate, now)
-    return {
-      success: data !== null,
-      data: data || [],
-      error: data === null ? 'No data available' : undefined,
+    if (!varInfo || !varInfo.period_end) {
+      return { success: false, data: [], error: 'No data available' }
     }
+
+    // Parse period end and calculate start
+    const periodEnd = varInfo.period_end
+    const endYear = parseInt(periodEnd.slice(0, 4))
+    const endMonth = parseInt(periodEnd.slice(4, 6)) - 1
+    const endDay = parseInt(periodEnd.slice(6, 8))
+    const endHour = parseInt(periodEnd.slice(8, 10))
+    const endMinute = parseInt(periodEnd.slice(10, 12))
+    const endSecond = parseInt(periodEnd.slice(12, 14))
+
+    const endDate = new Date(endYear, endMonth, endDay, endHour, endMinute, endSecond)
+    const startDate = new Date(endDate.getTime() - hoursBack * 60 * 60 * 1000)
+
+    const startTime = toWMIPTimestamp(startDate)
+    const endTime = periodEnd
+
+    const trace = await fetchWaterLevelData(gaugeId, startTime, endTime)
+
+    if (!trace || !trace.trace?.length) {
+      return { success: false, data: [], error: 'No trace data' }
+    }
+
+    const history: HistoryPoint[] = trace.trace.map(point => ({
+      timestamp: parseWMIPTimestamp(point.t),
+      level: parseFloat(point.v),
+    }))
+
+    return { success: true, data: history }
   } catch (error) {
-    return {
-      success: false,
-      data: [],
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }
+    return { success: false, data: [], error: String(error) }
   }
 }
 
 /**
- * Legacy function for backwards compatibility
- * Wraps batchFetchWaterLevels for multiple gauges
- *
- * @param gaugeIds - Array of gauge station IDs
- * @returns Map of gauge IDs to WMIPResponse
+ * Fetches water levels for multiple gauges
  */
 export async function fetchWMIPMultipleGauges(
-  gaugeIds: string[]
+  gaugeIds: string[] = [...MONITORED_GAUGE_IDS]
 ): Promise<Map<string, WMIPResponse>> {
   const results = new Map<string, WMIPResponse>()
-  const waterLevels = await batchFetchWaterLevels(gaugeIds)
 
-  for (const [gaugeId, data] of waterLevels) {
-    results.set(gaugeId, {
-      success: data !== null,
-      data,
-      error: data === null ? 'No data available' : undefined,
-    })
+  // Fetch in parallel with concurrency limit
+  const batchSize = 5
+  for (let i = 0; i < gaugeIds.length; i += batchSize) {
+    const batch = gaugeIds.slice(i, i + batchSize)
+    const batchResults = await Promise.all(
+      batch.map(async (gaugeId) => {
+        const result = await fetchWMIPWaterLevel(gaugeId)
+        return { gaugeId, result }
+      })
+    )
+
+    for (const { gaugeId, result } of batchResults) {
+      results.set(gaugeId, result)
+    }
   }
 
   return results
 }
+
+/**
+ * Fetches flood thresholds for a gauge
+ */
+export function fetchWMIPThresholds(gaugeId: string): FloodThresholds | null {
+  return FLOOD_THRESHOLDS[gaugeId] || null
+}
+
+/**
+ * Gets datasources available for a gauge
+ */
+export async function getGaugeDatasources(gaugeId: string): Promise<string[]> {
+  try {
+    const response = await wmipPost<{
+      error_num: number
+      return?: { sites?: Array<{ datasources?: string[] }> }
+    }>('get_datasources_by_site', {
+      site_list: gaugeId,
+    }, '1')  // get_datasources_by_site requires version 1
+
+    if (response.error_num !== 0) return []
+    return response.return?.sites?.[0]?.datasources || []
+  } catch {
+    return []
+  }
+}
+
+const wmipClient = {
+  fetchWMIPWaterLevel,
+  fetchWMIPHistory,
+  fetchWMIPMultipleGauges,
+  fetchWMIPThresholds,
+  getGaugeDatasources,
+  MONITORED_GAUGE_IDS,
+}
+
+export default wmipClient

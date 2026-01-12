@@ -4,20 +4,27 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { GAUGE_STATIONS, QUICK_LINKS } from '@/lib/constants'
 import type { SearchResult, GaugeStation } from '@/lib/types'
 import { cn, fuzzySearch } from '@/lib/utils'
+import { sanitizeSearchQuery } from '@/lib/sanitize'
+import { searchAddress, type GeocodingResult } from '@/lib/geocoding'
 
 interface LocationSearchProps {
   onSelect: (result: SearchResult) => void
+  onAddressSelect?: (location: { lat: number; lng: number; name: string }) => void
 }
 
-export default function LocationSearch({ onSelect }: LocationSearchProps) {
+type CombinedResult = SearchResult | { type: 'address'; geocoding: GeocodingResult }
+
+export default function LocationSearch({ onSelect, onAddressSelect }: LocationSearchProps) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
+  const [results, setResults] = useState<CombinedResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false)
   const [gpsError, setGpsError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
+  const addressDebounceRef = useRef<NodeJS.Timeout | null>(null)
 
   // Build searchable items from gauges, towns, and rivers
   const buildSearchResults = useCallback((searchQuery: string): SearchResult[] => {
@@ -79,27 +86,65 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
       })
     })
 
-    return searchResults.slice(0, 10) // Limit to 10 results
+    return searchResults.slice(0, 5) // Limit gauge/river results to make room for addresses
   }, [])
 
-  // Debounced search - responds within 200ms
+  // Search for addresses via geocoding
+  const searchAddresses = useCallback(async (searchQuery: string): Promise<CombinedResult[]> => {
+    if (searchQuery.length < 4) return []
+
+    setIsSearchingAddress(true)
+    try {
+      const response = await searchAddress(searchQuery)
+      if (response.success && response.results.length > 0) {
+        return response.results.slice(0, 3).map((result) => ({
+          type: 'address' as const,
+          geocoding: result,
+        }))
+      }
+    } catch (error) {
+      console.error('Address search error:', error)
+    } finally {
+      setIsSearchingAddress(false)
+    }
+    return []
+  }, [])
+
+  // Debounced search - responds within 200ms for local, longer for address
   useEffect(() => {
+    // Sanitize the input
+    const sanitizedQuery = sanitizeSearchQuery(query)
+
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
     }
+    if (addressDebounceRef.current) {
+      clearTimeout(addressDebounceRef.current)
+    }
 
+    // Quick local search
     debounceRef.current = setTimeout(() => {
-      const searchResults = buildSearchResults(query)
-      setResults(searchResults)
-      setIsOpen(searchResults.length > 0)
-    }, 150) // 150ms for responsiveness, well under 200ms target
+      const localResults = buildSearchResults(sanitizedQuery)
+      setResults(localResults)
+      setIsOpen(localResults.length > 0 || sanitizedQuery.length >= 4)
+    }, 150)
+
+    // Slower address geocoding search
+    if (sanitizedQuery.length >= 4) {
+      addressDebounceRef.current = setTimeout(async () => {
+        const addressResults = await searchAddresses(sanitizedQuery)
+        setResults((prev) => {
+          const localOnly = prev.filter((r) => r.type !== 'address')
+          return [...localOnly, ...addressResults]
+        })
+      }, 500)
+    }
 
     return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
     }
-  }, [query, buildSearchResults])
+  }, [query, buildSearchResults, searchAddresses])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -118,10 +163,28 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleSelect = (result: SearchResult) => {
-    setQuery(result.name)
-    setIsOpen(false)
-    onSelect(result)
+  const handleSelect = (result: CombinedResult) => {
+    if (result.type === 'address') {
+      const addr = result.geocoding
+      // Shorten display name for the input
+      const shortName = addr.displayName.split(',').slice(0, 3).join(', ')
+      setQuery(shortName)
+      setIsOpen(false)
+      onAddressSelect?.({ lat: addr.lat, lng: addr.lng, name: shortName })
+      // Also call onSelect with a synthetic result for map centering
+      onSelect({
+        type: 'town',
+        id: `addr-${addr.lat}-${addr.lng}`,
+        name: shortName,
+        description: 'Address',
+        lat: addr.lat,
+        lng: addr.lng,
+      })
+    } else {
+      setQuery(result.name)
+      setIsOpen(false)
+      onSelect(result)
+    }
   }
 
   const handleNearMe = () => {
@@ -189,7 +252,7 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
     )
   }
 
-  const getTypeIcon = (type: SearchResult['type']) => {
+  const getTypeIcon = (type: CombinedResult['type']) => {
     switch (type) {
       case 'gauge':
         return (
@@ -209,6 +272,13 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
           </svg>
         )
+      case 'address':
+        return (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        )
     }
   }
 
@@ -222,16 +292,19 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => results.length > 0 && setIsOpen(true)}
-            placeholder="Find a location or river gauge"
+            placeholder="Search gauge, town, river, or address..."
             className={cn(
               'w-full px-4 py-3 pl-10 rounded-lg border border-gray-300',
               'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent',
               'bg-white text-gray-900 placeholder-gray-500',
               'text-base'
             )}
-            aria-label="Search locations"
+            role="combobox"
+            aria-label="Search locations and addresses"
             aria-expanded={isOpen}
             aria-haspopup="listbox"
+            aria-autocomplete="list"
+            aria-controls="search-results-listbox"
           />
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
@@ -246,6 +319,14 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
+          {isSearchingAddress && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            </div>
+          )}
         </div>
 
         <button
@@ -283,37 +364,61 @@ export default function LocationSearch({ onSelect }: LocationSearchProps) {
         </div>
       )}
 
-      {isOpen && results.length > 0 && (
+      {isOpen && (results.length > 0 || isSearchingAddress) && (
         <div
           ref={dropdownRef}
+          id="search-results-listbox"
           className={cn(
             'absolute z-50 w-full mt-1 bg-white rounded-lg shadow-lg',
             'border border-gray-200 max-h-80 overflow-auto'
           )}
           role="listbox"
         >
-          {results.map((result) => (
-            <button
-              key={result.id}
-              onClick={() => handleSelect(result)}
-              className={cn(
-                'w-full px-4 py-3 flex items-start gap-3 text-left',
-                'hover:bg-gray-50 active:bg-gray-100',
-                'border-b border-gray-100 last:border-b-0',
-                'transition-colors duration-100'
-              )}
-              role="option"
-            >
-              <span className="mt-0.5 text-gray-400">{getTypeIcon(result.type)}</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 truncate">{result.name}</p>
-                <p className="text-sm text-gray-500 truncate">{result.description}</p>
-              </div>
-              <span className="text-xs uppercase text-gray-400 font-medium mt-1">
-                {result.type}
-              </span>
-            </button>
-          ))}
+          {results.length === 0 && isSearchingAddress ? (
+            <div className="px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Searching for addresses...
+            </div>
+          ) : (
+            results.map((result, index) => {
+              const isAddress = result.type === 'address'
+              const displayName = isAddress ? result.geocoding.displayName : result.name
+              const description = isAddress ? 'Address' : result.description
+
+              return (
+                <button
+                  key={isAddress ? `addr-${index}` : result.id}
+                  onClick={() => handleSelect(result)}
+                  className={cn(
+                    'w-full px-4 py-3 flex items-start gap-3 text-left',
+                    'hover:bg-gray-50 active:bg-gray-100',
+                    'border-b border-gray-100 last:border-b-0',
+                    'transition-colors duration-100'
+                  )}
+                  role="option"
+                  aria-selected={false}
+                >
+                  <span className="mt-0.5 text-gray-400">{getTypeIcon(result.type)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{displayName}</p>
+                    <p className="text-sm text-gray-500 truncate">{description}</p>
+                  </div>
+                  <span className="text-xs uppercase text-gray-400 font-medium mt-1">
+                    {result.type}
+                  </span>
+                </button>
+              )
+            })
+          )}
+
+          {query.length >= 4 && results.filter(r => r.type !== 'address').length > 0 && results.filter(r => r.type === 'address').length === 0 && !isSearchingAddress && (
+            <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100">
+              Tip: Type a full address to search by street name
+            </div>
+          )}
         </div>
       )}
     </div>

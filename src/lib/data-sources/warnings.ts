@@ -406,7 +406,7 @@ export async function getHighestWarningLevel(): Promise<'none' | 'minor' | 'mode
   return 'minor'
 }
 
-export default {
+const warningsClient = {
   fetchBOMWarnings,
   fetchProductWarnings,
   fetchFitzroyBasinWarnings,
@@ -414,3 +414,5 @@ export default {
   hasActiveMajorWarnings,
   getHighestWarningLevel,
 }
+
+export default warningsClient

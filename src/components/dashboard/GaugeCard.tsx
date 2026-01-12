@@ -8,6 +8,7 @@ interface GaugeCardProps {
   gaugeData: GaugeData
   onClick?: () => void
   selected?: boolean
+  compact?: boolean
 }
 
 const trendDescriptions: Record<Trend, string> = {
@@ -71,11 +72,63 @@ function getPlainDescription(gaugeData: GaugeData): string {
   return description
 }
 
-export function GaugeCard({ gaugeData, onClick, selected }: GaugeCardProps) {
+export function GaugeCard({ gaugeData, onClick, selected, compact = false }: GaugeCardProps) {
   const { station, reading, thresholds } = gaugeData
   const hasData = reading !== null
   const staleData = hasData && isDataStale(reading.timestamp)
 
+  // Compact mode for sidebar display
+  if (compact) {
+    return (
+      <article
+        className={cn(
+          'bg-white rounded-lg border border-gray-200 p-3',
+          'transition-all duration-150',
+          'hover:bg-gray-50 hover:border-gray-300',
+          onClick && 'cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none',
+          staleData && 'opacity-75',
+          selected && 'ring-2 ring-blue-500 border-blue-500 bg-blue-50'
+        )}
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (onClick && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            onClick()
+          }
+        }}
+        tabIndex={onClick ? 0 : undefined}
+        role={onClick ? 'button' : 'article'}
+        aria-label={`Gauge card for ${station.name}`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-medium text-gray-900 truncate">{station.name}</h3>
+            <p className="text-xs text-gray-500 truncate">{station.stream}</p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {hasData && (
+              <>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-gray-900">
+                    {reading.level.toFixed(2)}m
+                  </span>
+                  <span className={cn('ml-1', getTrendColor(reading.trend))}>
+                    {getTrendArrow(reading.trend)}
+                  </span>
+                </div>
+                <StatusBadge status={reading.status} size="sm" />
+              </>
+            )}
+          </div>
+        </div>
+        {staleData && (
+          <p className="text-xs text-amber-600 mt-1">Data may be outdated</p>
+        )}
+      </article>
+    )
+  }
+
+  // Full mode (original)
   return (
     <article
       className={cn(

@@ -61,13 +61,14 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
   if (isLoading) {
     return (
       <div className="bg-white rounded-lg shadow-sm p-4">
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-32 mb-3" />
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="flex-shrink-0 w-24 h-16 bg-gray-200 rounded-lg" />
-            ))}
-          </div>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm font-semibold text-gray-700">Loading from QLD WMIP...</span>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="flex-shrink-0 w-24 h-16 bg-gray-100 rounded-lg animate-pulse" />
+          ))}
         </div>
       </div>
     )

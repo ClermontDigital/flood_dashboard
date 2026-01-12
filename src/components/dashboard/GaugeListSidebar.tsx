@@ -119,10 +119,15 @@ export function GaugeListSidebar({
   if (isLoading) {
     return (
       <div className="bg-white rounded-lg shadow-sm p-4">
-        <div className="h-6 w-32 bg-gray-200 animate-pulse rounded mb-4" />
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm font-semibold text-gray-700">Loading Gauges...</span>
+        </div>
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-20 bg-gray-200 animate-pulse rounded-lg" />
+            <div key={i} className="h-20 bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
+              <span className="text-xs text-gray-400">Loading gauge {i}...</span>
+            </div>
           ))}
         </div>
       </div>

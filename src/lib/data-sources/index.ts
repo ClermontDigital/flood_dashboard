@@ -49,3 +49,21 @@ export {
   type RainfallSummary,
   type RainfallResponse,
 } from './rainfall'
+
+export {
+  fetchBOMWeather,
+  getWeatherDescription,
+  getWindDescription,
+  type BOMObservation,
+  type BOMWeatherResponse,
+} from './bom-weather'
+
+export {
+  fetchFloodForecast,
+  fetchGaugeFloodData,
+  fetchMultipleGaugeFloodData,
+  FLOOD_API_ATTRIBUTION,
+  type FloodForecast,
+  type GaugeFloodData,
+  type FloodDataResponse,
+} from './open-meteo-flood'

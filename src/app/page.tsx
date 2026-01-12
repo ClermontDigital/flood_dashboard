@@ -39,6 +39,7 @@ import LocationSearch from '@/components/dashboard/LocationSearch'
 import RainfallPanel from '@/components/dashboard/RainfallPanel'
 import BasinOverview from '@/components/dashboard/BasinOverview'
 import type { RainfallSummary } from '@/lib/data-sources/rainfall'
+import type { BOMObservation } from '@/lib/data-sources/bom-weather'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
@@ -61,7 +62,8 @@ interface RainfallAPIResponse {
 }
 
 export default function DashboardPage() {
-  const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(null)
+  // Default to Sandy Creek @ Clermont on first load
+  const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>('130207A')
   const [mapCenter, setMapCenter] = useState<[number, number]>(CLERMONT_CENTER)
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
@@ -93,6 +95,13 @@ export default function DashboardPage() {
   // Fetch rainfall data
   const { data: rainfallData, isLoading: rainfallLoading } = useSWR<RainfallAPIResponse>(
     '/api/rainfall',
+    fetcher,
+    { refreshInterval: REFRESH_INTERVAL }
+  )
+
+  // Fetch BOM weather data
+  const { data: weatherData, isLoading: weatherLoading } = useSWR<{ success: boolean; data: BOMObservation | null }>(
+    '/api/weather',
     fetcher,
     { refreshInterval: REFRESH_INTERVAL }
   )
@@ -246,7 +255,8 @@ export default function DashboardPage() {
           <div className="lg:col-span-1">
             <RainfallPanel
               rainfall={rainfallData?.regional || null}
-              isLoading={rainfallLoading}
+              weather={weatherData?.data || null}
+              isLoading={rainfallLoading || weatherLoading}
               compact
             />
           </div>
@@ -403,7 +413,7 @@ export default function DashboardPage() {
                     {/* WMIP Link */}
                     <div className="mt-3 pt-3 border-t border-gray-200">
                       <a
-                        href="https://water-monitoring.information.qld.gov.au/"
+                        href={`https://water-monitoring.information.qld.gov.au/host.htm?ppbm=${selectedGaugeId}&rs&1&rslf_org`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"

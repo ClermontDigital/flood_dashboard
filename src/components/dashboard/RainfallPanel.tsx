@@ -2,10 +2,12 @@
 
 import { cn } from '@/lib/utils'
 import type { RainfallSummary } from '@/lib/data-sources/rainfall'
+import type { BOMObservation } from '@/lib/data-sources/bom-weather'
 import { getRainfallIntensity, getRainfallRisk } from '@/lib/data-sources/rainfall'
 
 interface RainfallPanelProps {
   rainfall: RainfallSummary | null
+  weather?: BOMObservation | null
   isLoading?: boolean
   compact?: boolean
 }
@@ -24,44 +26,37 @@ const riskLabels = {
   extreme: 'Extreme Risk',
 }
 
-export function RainfallPanel({ rainfall, isLoading, compact = false }: RainfallPanelProps) {
+export function RainfallPanel({ rainfall, weather, isLoading, compact = false }: RainfallPanelProps) {
   if (isLoading) {
     return (
-      <div className={cn(
-        "bg-white rounded-lg border border-gray-200 p-4",
-        compact ? "p-3" : "p-4"
-      )}>
+      <div className="bg-white rounded-lg shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm font-semibold text-gray-700">Loading BOM Weather...</span>
+        </div>
         <div className="animate-pulse space-y-3">
-          <div className="h-4 bg-gray-200 rounded w-1/3" />
-          <div className="h-8 bg-gray-200 rounded w-1/2" />
-          <div className="h-4 bg-gray-200 rounded w-2/3" />
+          <div className="h-12 bg-gray-100 rounded" />
+          <div className="grid grid-cols-3 gap-2">
+            <div className="h-10 bg-gray-100 rounded" />
+            <div className="h-10 bg-gray-100 rounded" />
+            <div className="h-10 bg-gray-100 rounded" />
+          </div>
         </div>
       </div>
     )
   }
 
-  if (!rainfall) {
-    return (
-      <div className={cn(
-        "bg-white rounded-lg border border-gray-200",
-        compact ? "p-3" : "p-4"
-      )}>
-        <h3 className={cn("font-semibold text-gray-700", compact ? "text-sm" : "text-base")}>
-          Rainfall Data
-        </h3>
-        <p className="text-gray-500 text-sm mt-2">Unable to load rainfall data</p>
-      </div>
-    )
-  }
-
-  const risk = getRainfallRisk(rainfall.next24Hours, rainfall.next7Days)
-  const intensity = getRainfallIntensity(rainfall.current.precipitation)
+  // Use BOM rainfall if available, otherwise fall back to Open-Meteo
+  const rainfallSince9am = weather?.rainfall ?? null
+  const risk = rainfall ? getRainfallRisk(rainfall.next24Hours, rainfall.next7Days) : 'low'
+  const intensity = rainfall ? getRainfallIntensity(rainfall.current.precipitation) : 'No rain'
 
   if (compact) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700">Weather & Rainfall</h3>
+      <div className="bg-white rounded-lg shadow-sm p-4 h-full flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-900">Weather & Rainfall</h2>
           <span className={cn(
             "px-2 py-0.5 text-xs font-medium rounded-full border",
             riskColors[risk]
@@ -69,59 +64,94 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
             {riskLabels[risk]}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <span className="text-gray-500">Last 24h:</span>
-            <span className="ml-1 font-medium">{rainfall.last24Hours.toFixed(1)}mm</span>
+
+        {/* Current Temperature */}
+        {weather && (
+          <div className="flex items-center gap-3 mb-3 p-2.5 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-900">
+                {weather.temperature !== null ? `${weather.temperature}°` : '--°'}
+              </div>
+              {weather.apparentTemp !== null && (
+                <div className="text-[10px] text-gray-500">
+                  Feels {weather.apparentTemp}°
+                </div>
+              )}
+            </div>
+            <div className="flex-1 text-xs">
+              <div className="font-medium text-gray-800">
+                {weather.description || 'Clermont Region'}
+              </div>
+              {weather.humidity !== null && (
+                <div className="text-gray-600">Humidity: {weather.humidity}%</div>
+              )}
+              {weather.windSpeed !== null && (
+                <div className="text-gray-600">
+                  Wind: {weather.windDirection || ''} {weather.windSpeed}km/h
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <span className="text-gray-500">Next 24h:</span>
-            <span className="ml-1 font-medium">{rainfall.next24Hours.toFixed(1)}mm</span>
+        )}
+
+        {/* Rainfall Stats */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="text-center p-2 bg-blue-50 rounded">
+            <div className="text-[10px] text-blue-600 font-medium">Last 12h</div>
+            <div className="text-base font-bold text-blue-800">
+              {rainfallSince9am !== null ? `${rainfallSince9am}mm` : '--'}
+            </div>
+          </div>
+          <div className="text-center p-2 bg-gray-50 rounded">
+            <div className="text-[10px] text-gray-600 font-medium">Last 24h</div>
+            <div className="text-base font-bold text-gray-800">
+              {rainfall ? `${rainfall.last24Hours.toFixed(0)}mm` : '--'}
+            </div>
+          </div>
+          <div className="text-center p-2 bg-cyan-50 rounded">
+            <div className="text-[10px] text-cyan-600 font-medium">Next 24h</div>
+            <div className="text-base font-bold text-cyan-800">
+              {rainfall ? `${rainfall.next24Hours.toFixed(0)}mm` : '--'}
+            </div>
           </div>
         </div>
-        {rainfall.current.isRaining && (
-          <p className="text-xs text-blue-600 mt-2">
+
+        {/* Rain status */}
+        {rainfall?.current.isRaining && (
+          <div className="mb-3 px-2.5 py-1.5 bg-blue-100 rounded text-xs text-blue-800 flex items-center gap-2">
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.5 17a4.5 4.5 0 01-1.44-8.765 4.5 4.5 0 018.302-3.046 3.5 3.5 0 014.504 4.272A4 4 0 0115 17H5.5zm3.75-2.75a.75.75 0 001.5 0V9.66l1.95 2.1a.75.75 0 101.1-1.02l-3.25-3.5a.75.75 0 00-1.1 0l-3.25 3.5a.75.75 0 101.1 1.02l1.95-2.1v4.59z" clipRule="evenodd" />
+            </svg>
             Currently raining: {intensity}
-          </p>
+          </div>
         )}
+
+        {/* Spacer to push links to bottom */}
+        <div className="flex-1" />
+
         {/* BOM Quick Links */}
-        <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-2 text-xs">
-          <a
-            href="https://www.bom.gov.au/location/australia/queensland/central-highlands-and-coalfields/bqld_pt064-clermont"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
-          >
-            BOM Forecast
-          </a>
-          <span className="text-gray-300">|</span>
-          <a
-            href="http://www.bom.gov.au/products/IDR663.loop.shtml"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
-          >
-            Radar
-          </a>
-          <span className="text-gray-300">|</span>
-          <a
-            href="http://www.bom.gov.au/qld/warnings/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
-          >
-            Warnings
-          </a>
+        <div className="pt-2 border-t border-gray-100">
+          <div className="flex flex-wrap gap-2 text-xs">
+            <a href="https://www.bom.gov.au/location/australia/queensland/central-highlands-and-coalfields/bqld_pt064-clermont" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">BOM Forecast</a>
+            <span className="text-gray-300">|</span>
+            <a href="http://www.bom.gov.au/products/IDR663.loop.shtml" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Radar</a>
+            <span className="text-gray-300">|</span>
+            <a href="http://www.bom.gov.au/qld/warnings/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Warnings</a>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5">
+            Weather: Open-Meteo | <a href="https://www.bom.gov.au/location/australia/queensland/central-highlands-and-coalfields/bqld_pt064-clermont" target="_blank" rel="noopener noreferrer" className="hover:underline">Official BOM</a>
+          </p>
         </div>
       </div>
     )
   }
 
+  // Full version (non-compact)
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900">
-          Rainfall Overview
+          Weather & Rainfall
         </h3>
         <span className={cn(
           "px-3 py-1 text-sm font-medium rounded-full border",
@@ -131,105 +161,82 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
         </span>
       </div>
 
-      {/* Current Status */}
-      <div className={cn(
-        "rounded-lg p-3 mb-4",
-        rainfall.current.isRaining ? "bg-blue-50 border border-blue-200" : "bg-gray-50"
-      )}>
-        <div className="flex items-center gap-2">
-          <svg
-            className={cn(
-              "w-5 h-5",
-              rainfall.current.isRaining ? "text-blue-500" : "text-gray-400"
-            )}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"
-            />
-          </svg>
-          <div>
-            <p className="font-medium text-gray-900">{intensity}</p>
-            {rainfall.current.isRaining && (
-              <p className="text-sm text-gray-600">
-                {rainfall.current.precipitation.toFixed(1)} mm/hr
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Historical and Forecast */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Recent</p>
-          <div className="space-y-1">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Last 24h</span>
-              <span className="text-sm font-semibold">{rainfall.last24Hours.toFixed(1)}mm</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Last 7d</span>
-              <span className="text-sm font-semibold">{rainfall.last7Days.toFixed(1)}mm</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-blue-50 rounded-lg p-3">
-          <p className="text-xs text-blue-600 uppercase tracking-wide mb-1">Forecast</p>
-          <div className="space-y-1">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Next 24h</span>
-              <span className="text-sm font-semibold text-blue-700">{rainfall.next24Hours.toFixed(1)}mm</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Next 7d</span>
-              <span className="text-sm font-semibold text-blue-700">{rainfall.next7Days.toFixed(1)}mm</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Daily Forecast */}
-      {rainfall.dailyForecast.length > 0 && (
-        <div className="border-t border-gray-100 pt-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">7-Day Forecast</p>
-          <div className="flex gap-1 overflow-x-auto">
-            {rainfall.dailyForecast.map((day, index) => {
-              const dayName = new Date(day.date).toLocaleDateString('en-AU', { weekday: 'short' })
-              const hasRain = day.precipitationSum > 0
-              return (
-                <div
-                  key={day.date}
-                  className={cn(
-                    "flex-1 min-w-[48px] text-center p-2 rounded",
-                    hasRain ? "bg-blue-50" : "bg-gray-50"
-                  )}
-                >
-                  <p className="text-xs text-gray-500">{dayName}</p>
-                  <p className={cn(
-                    "text-sm font-medium",
-                    hasRain ? "text-blue-700" : "text-gray-400"
-                  )}>
-                    {day.precipitationSum.toFixed(0)}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {day.precipitationProbabilityMax}%
-                  </p>
+      {/* Current Weather */}
+      {weather && (
+        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-4">
+            <div className="text-center">
+              <div className="text-4xl font-bold text-gray-900">
+                {weather.temperature !== null ? `${weather.temperature}°C` : '--'}
+              </div>
+              {weather.apparentTemp !== null && (
+                <div className="text-sm text-gray-600">
+                  Feels like {weather.apparentTemp}°C
                 </div>
-              )
-            })}
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="text-lg font-medium text-gray-900">
+                {weather.description || weather.stationName}
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-gray-600">
+                {weather.humidity !== null && (
+                  <div>Humidity: {weather.humidity}%</div>
+                )}
+                {weather.windSpeed !== null && (
+                  <div>Wind: {weather.windDirection} {weather.windSpeed}km/h</div>
+                )}
+                {weather.pressure !== null && (
+                  <div>Pressure: {weather.pressure}hPa</div>
+                )}
+                {weather.windGust !== null && weather.windGust > 0 && (
+                  <div>Gusts: {weather.windGust}km/h</div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Rainfall Section */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-blue-50 rounded-lg p-3">
+          <p className="text-xs text-blue-600 uppercase tracking-wide mb-1">Recent Rainfall</p>
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-600">Last 12h</span>
+              <span className="text-sm font-semibold text-blue-700">
+                {rainfallSince9am !== null ? `${rainfallSince9am}mm` : '--'}
+              </span>
+            </div>
+            {rainfall && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Last 24h</span>
+                <span className="text-sm font-semibold">{rainfall.last24Hours.toFixed(1)}mm</span>
+              </div>
+            )}
+          </div>
+        </div>
+        {rainfall && (
+          <div className="bg-cyan-50 rounded-lg p-3">
+            <p className="text-xs text-cyan-600 uppercase tracking-wide mb-1">Forecast</p>
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Next 24h</span>
+                <span className="text-sm font-semibold text-cyan-700">{rainfall.next24Hours.toFixed(1)}mm</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Next 7d</span>
+                <span className="text-sm font-semibold text-cyan-700">{rainfall.next7Days.toFixed(1)}mm</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* BOM Weather Links */}
-      <div className="mt-4 pt-3 border-t border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">BOM Weather</p>
+      <div className="pt-3 border-t border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">BOM Resources</p>
         <div className="grid grid-cols-2 gap-2">
           <a
             href="https://www.bom.gov.au/location/australia/queensland/central-highlands-and-coalfields/bqld_pt064-clermont"
@@ -278,24 +285,11 @@ export function RainfallPanel({ rainfall, isLoading, compact = false }: Rainfall
         </div>
       </div>
 
-      {/* Location and Source */}
-      <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-        {rainfall.location.name && (
-          <p className="text-xs text-gray-400">
-            {rainfall.location.name}
-          </p>
-        )}
-        <a
-          href="https://open-meteo.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
-        >
-          Rainfall: Open-Meteo
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
-        </a>
+      {/* Source */}
+      <div className="mt-3 pt-2 border-t border-gray-100">
+        <p className="text-xs text-gray-400">
+          Weather data from Open-Meteo for Clermont region. Visit BOM links above for official forecasts.
+        </p>
       </div>
     </div>
   )

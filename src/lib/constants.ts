@@ -136,16 +136,7 @@ export const RIVER_SYSTEM_NAMES: Record<RiverSystem, string> = {
 
 // All gauge stations
 export const GAUGE_STATIONS: GaugeStation[] = [
-  // Clermont Area (3 gauges)
-  {
-    id: '130212A',
-    name: 'Theresa Creek @ Gregory Hwy',
-    stream: 'Theresa Creek',
-    riverSystem: 'clermont',
-    lat: -22.7833,
-    lng: 147.5667,
-    role: 'Upstream early warning',
-  },
+  // Clermont Area (1 gauge)
   {
     id: '130207A',
     name: 'Sandy Creek @ Clermont',
@@ -155,17 +146,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 147.6392,
     role: 'Primary monitoring',
   },
-  {
-    id: '120311A',
-    name: 'Clermont Alpha Rd',
-    stream: 'Eastern Creek',
-    riverSystem: 'clermont',
-    lat: -22.9000,
-    lng: 147.7000,
-    role: 'Secondary monitoring',
-  },
 
-  // Isaac River System (3 gauges)
+  // Isaac River System (2 gauges)
   {
     id: '130401A',
     name: 'Isaac River @ Yatton',
@@ -184,17 +166,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 148.6167,
     role: 'Mid Isaac',
   },
-  {
-    id: '130408A',
-    name: 'Connors River @ Pink Lagoon',
-    stream: 'Connors River',
-    riverSystem: 'isaac',
-    lat: -21.9500,
-    lng: 148.7833,
-    role: 'Tributary input',
-  },
 
-  // Nogoa River System (3 gauges)
+  // Nogoa River System (2 gauges)
   {
     id: '130209A',
     name: 'Nogoa River @ Craigmore',
@@ -212,15 +185,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -23.4500,
     lng: 148.1000,
     role: 'Below Fairbairn Dam',
-  },
-  {
-    id: '130204A',
-    name: 'Retreat Creek @ Dunrobin',
-    stream: 'Retreat Creek',
-    riverSystem: 'nogoa',
-    lat: -23.6000,
-    lng: 147.8000,
-    role: 'Tributary',
   },
 
   // Mackenzie River System (3 gauges)
@@ -252,27 +216,7 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     role: 'Upper Mackenzie',
   },
 
-  // Comet River System (2 gauges)
-  {
-    id: '130504A',
-    name: 'Comet River @ Comet Weir',
-    stream: 'Comet River',
-    riverSystem: 'comet',
-    lat: -23.6000,
-    lng: 148.5500,
-    role: 'Near Comet',
-  },
-  {
-    id: '130502A',
-    name: 'Comet River @ The Lake',
-    stream: 'Comet River',
-    riverSystem: 'comet',
-    lat: -23.8000,
-    lng: 148.3000,
-    role: 'Upper Comet',
-  },
-
-  // Fitzroy River (3 gauges)
+  // Fitzroy River (2 gauges)
   {
     id: '130004A',
     name: 'Fitzroy River @ The Gap',
@@ -281,15 +225,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -23.3833,
     lng: 149.9167,
     role: 'Upper Fitzroy',
-  },
-  {
-    id: '130003A',
-    name: 'Fitzroy River @ Yaamba',
-    stream: 'Fitzroy River',
-    riverSystem: 'fitzroy',
-    lat: -23.1333,
-    lng: 150.3667,
-    role: 'Above Rockhampton',
   },
   {
     id: '130005A',
@@ -313,34 +248,30 @@ export const QUICK_LINKS = [
 // Extended river paths for map overlay (with additional waypoints for better visibility)
 export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
   clermont: [
-    // Theresa Creek upstream
+    // Sandy Creek area
     [-22.65, 147.45],
     [-22.72, 147.52],
-    [-22.7833, 147.5667], // Theresa Creek @ Gregory Hwy
     [-22.80, 147.60],
     [-22.8245, 147.6392], // Sandy Creek @ Clermont
     [-22.86, 147.68],
-    [-22.9000, 147.7000], // Clermont Alpha Rd
     [-22.95, 147.75],
     [-23.00, 147.82],
   ],
   isaac: [
-    // Isaac River headwaters
+    // Isaac River
     [-22.55, 148.15],
     [-22.48, 148.25],
     [-22.4167, 148.3333], // Isaac River @ Yatton
     [-22.30, 148.45],
     [-22.1833, 148.6167], // Isaac River @ Deverill
     [-22.05, 148.70],
-    [-21.9500, 148.7833], // Connors River @ Pink Lagoon
     [-21.85, 148.85],
     [-21.75, 148.95],
   ],
   nogoa: [
-    // Nogoa River upstream (towards Emerald)
+    // Nogoa River (towards Emerald)
     [-23.75, 147.65],
     [-23.68, 147.72],
-    [-23.6000, 147.8000], // Retreat Creek @ Dunrobin
     [-23.56, 147.87],
     [-23.5167, 147.9333], // Nogoa River @ Craigmore
     [-23.48, 148.02],
@@ -360,11 +291,11 @@ export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
     [-23.25, 149.75],
   ],
   comet: [
-    // Comet River
+    // Comet River (no active gauges)
     [-23.92, 148.15],
-    [-23.8000, 148.3000], // Comet River @ The Lake
+    [-23.8000, 148.3000],
     [-23.70, 148.42],
-    [-23.6000, 148.5500], // Comet River @ Comet Weir
+    [-23.6000, 148.5500],
     [-23.50, 148.62],
     [-23.42, 148.70],
   ],
@@ -373,7 +304,6 @@ export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
     [-23.30, 149.70],
     [-23.3833, 149.9167], // Fitzroy River @ The Gap
     [-23.28, 150.12],
-    [-23.1333, 150.3667], // Fitzroy River @ Yaamba
     [-23.25, 150.42],
     [-23.3833, 150.5000], // Fitzroy River @ Rockhampton
     [-23.42, 150.58],

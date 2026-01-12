@@ -46,22 +46,15 @@ interface BOMObservation {
 // BOM feature of interest mapping (gauge IDs to BOM station identifiers)
 // BOM uses different identifiers - these map our gauge IDs to BOM station codes
 const GAUGE_TO_BOM_FEATURE: Record<string, string> = {
-  '130212A': 'http://bom.gov.au/waterdata/services/stations/130212A',
   '130207A': 'http://bom.gov.au/waterdata/services/stations/130207A',
-  '120311A': 'http://bom.gov.au/waterdata/services/stations/120311A',
   '130401A': 'http://bom.gov.au/waterdata/services/stations/130401A',
   '130410A': 'http://bom.gov.au/waterdata/services/stations/130410A',
-  '130408A': 'http://bom.gov.au/waterdata/services/stations/130408A',
   '130209A': 'http://bom.gov.au/waterdata/services/stations/130209A',
   '130219A': 'http://bom.gov.au/waterdata/services/stations/130219A',
-  '130204A': 'http://bom.gov.au/waterdata/services/stations/130204A',
   '130106A': 'http://bom.gov.au/waterdata/services/stations/130106A',
   '130105B': 'http://bom.gov.au/waterdata/services/stations/130105B',
   '130113A': 'http://bom.gov.au/waterdata/services/stations/130113A',
-  '130504A': 'http://bom.gov.au/waterdata/services/stations/130504A',
-  '130502A': 'http://bom.gov.au/waterdata/services/stations/130502A',
   '130004A': 'http://bom.gov.au/waterdata/services/stations/130004A',
-  '130003A': 'http://bom.gov.au/waterdata/services/stations/130003A',
   '130005A': 'http://bom.gov.au/waterdata/services/stations/130005A',
 }
 

@@ -25,21 +25,14 @@ export const revalidate = 300
 // Known flood thresholds for gauges
 const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 }, // Sandy Creek @ Clermont
-  '130212A': { minor: 3.0, moderate: 4.5, major: 6.0 }, // Theresa Creek
-  '120311A': { minor: 2.5, moderate: 4.0, major: 5.5 }, // Clermont Alpha Rd
   '130401A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Isaac River @ Yatton
   '130410A': { minor: 6.0, moderate: 8.0, major: 10.0 }, // Isaac River @ Deverill
-  '130408A': { minor: 4.0, moderate: 6.0, major: 8.0 }, // Connors River
   '130209A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Nogoa @ Craigmore
   '130219A': { minor: 4.5, moderate: 6.5, major: 8.5 }, // Nogoa @ Duck Ponds
-  '130204A': { minor: 3.0, moderate: 4.5, major: 6.0 }, // Retreat Creek
   '130106A': { minor: 8.0, moderate: 10.0, major: 12.0 }, // Mackenzie @ Bingegang
   '130105B': { minor: 7.0, moderate: 9.0, major: 11.0 }, // Mackenzie @ Coolmaringa
   '130113A': { minor: 6.0, moderate: 8.0, major: 10.0 }, // Mackenzie @ Rileys
-  '130504A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Comet River @ Weir
-  '130502A': { minor: 4.0, moderate: 6.0, major: 8.0 }, // Comet River @ The Lake
   '130004A': { minor: 7.0, moderate: 8.5, major: 10.0 }, // Fitzroy @ The Gap
-  '130003A': { minor: 6.5, moderate: 8.0, major: 9.5 }, // Fitzroy @ Yaamba
   '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
 }
 

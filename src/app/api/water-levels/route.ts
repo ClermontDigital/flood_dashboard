@@ -1,0 +1,137 @@
+/**
+ * Water Levels API Route
+ * GET /api/water-levels
+ *
+ * Returns current water levels for all 17 gauges.
+ * Aggregates data from WMIP (primary) with BOM fallback.
+ * Responses are cached for 5 minutes.
+ */
+
+import { NextResponse } from 'next/server'
+import type { WaterLevelsResponse, GaugeData, WaterLevel, FloodThresholds } from '@/lib/types'
+import { GAUGE_STATIONS } from '@/lib/constants'
+import { generateMockWaterLevel, calculateStatus, calculateTrend } from '@/lib/utils'
+import {
+  fetchWMIPMultipleGauges,
+  fetchBOMMultipleGauges,
+  fetchWMIPThresholds,
+} from '@/lib/data-sources'
+
+// Cache configuration - revalidate every 5 minutes
+export const revalidate = 300
+
+// Known flood thresholds for gauges
+const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
+  '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 }, // Sandy Creek @ Clermont
+  '130212A': { minor: 3.0, moderate: 4.5, major: 6.0 }, // Theresa Creek
+  '120311A': { minor: 2.5, moderate: 4.0, major: 5.5 }, // Clermont Alpha Rd
+  '130401A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Isaac River @ Yatton
+  '130410A': { minor: 6.0, moderate: 8.0, major: 10.0 }, // Isaac River @ Deverill
+  '130408A': { minor: 4.0, moderate: 6.0, major: 8.0 }, // Connors River
+  '130209A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Nogoa @ Craigmore
+  '130219A': { minor: 4.5, moderate: 6.5, major: 8.5 }, // Nogoa @ Duck Ponds
+  '130204A': { minor: 3.0, moderate: 4.5, major: 6.0 }, // Retreat Creek
+  '130106A': { minor: 8.0, moderate: 10.0, major: 12.0 }, // Mackenzie @ Bingegang
+  '130105B': { minor: 7.0, moderate: 9.0, major: 11.0 }, // Mackenzie @ Coolmaringa
+  '130113A': { minor: 6.0, moderate: 8.0, major: 10.0 }, // Mackenzie @ Rileys
+  '130504A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Comet River @ Weir
+  '130502A': { minor: 4.0, moderate: 6.0, major: 8.0 }, // Comet River @ The Lake
+  '130004A': { minor: 7.0, moderate: 8.5, major: 10.0 }, // Fitzroy @ The Gap
+  '130003A': { minor: 6.5, moderate: 8.0, major: 9.5 }, // Fitzroy @ Yaamba
+  '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
+}
+
+export async function GET(): Promise<NextResponse<WaterLevelsResponse>> {
+  const gaugeIds = GAUGE_STATIONS.map((station) => station.id)
+  const sources: string[] = []
+
+  let waterLevelMap = new Map<string, WaterLevel>()
+  let useMockData = false
+
+  try {
+    // Try WMIP first (primary source)
+    const wmipResults = await fetchWMIPMultipleGauges(gaugeIds)
+
+    let wmipSuccessCount = 0
+    for (const [gaugeId, result] of wmipResults) {
+      if (result.success && result.data) {
+        // Apply thresholds and calculate status
+        const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
+        const enrichedData: WaterLevel = {
+          ...result.data,
+          status: calculateStatus(result.data.level, thresholds),
+        }
+        waterLevelMap.set(gaugeId, enrichedData)
+        wmipSuccessCount++
+      }
+    }
+
+    if (wmipSuccessCount > 0) {
+      sources.push('wmip')
+    }
+
+    // For gauges without WMIP data, try BOM fallback
+    const missingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
+
+    if (missingGaugeIds.length > 0) {
+      const bomResults = await fetchBOMMultipleGauges(missingGaugeIds)
+
+      let bomSuccessCount = 0
+      for (const [gaugeId, result] of bomResults) {
+        if (result.success && result.data) {
+          const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
+          const enrichedData: WaterLevel = {
+            ...result.data,
+            status: calculateStatus(result.data.level, thresholds),
+          }
+          waterLevelMap.set(gaugeId, enrichedData)
+          bomSuccessCount++
+        }
+      }
+
+      if (bomSuccessCount > 0) {
+        sources.push('bom')
+      }
+    }
+
+    // If no data from either source, use mock data
+    if (waterLevelMap.size === 0) {
+      useMockData = true
+    }
+  } catch (error) {
+    console.error('Error fetching water levels:', error)
+    useMockData = true
+  }
+
+  // Generate mock data if needed
+  if (useMockData) {
+    sources.length = 0
+    sources.push('mock')
+
+    for (const station of GAUGE_STATIONS) {
+      const mockLevel = generateMockWaterLevel(station.id)
+      const thresholds = FLOOD_THRESHOLDS[station.id] || null
+      mockLevel.status = calculateStatus(mockLevel.level, thresholds)
+      waterLevelMap.set(station.id, mockLevel)
+    }
+  }
+
+  // Build response
+  const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => ({
+    station,
+    reading: waterLevelMap.get(station.id) || null,
+    thresholds: FLOOD_THRESHOLDS[station.id] || null,
+  }))
+
+  const response: WaterLevelsResponse = {
+    timestamp: new Date().toISOString(),
+    gauges,
+    sources,
+  }
+
+  return NextResponse.json(response, {
+    headers: {
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
+    },
+  })
+}

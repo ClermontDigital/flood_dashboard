@@ -15,13 +15,9 @@ const UPSTREAM_RELATIONSHIPS: Record<
     { upstreamId: '130212A', travelTimeHours: [4, 6] },
   ],
 
-  // Isaac River @ Deverill is downstream of Yatton
+  // Isaac River @ Deverill is downstream of Yatton and receives Connors River
   '130410A': [
     { upstreamId: '130401A', travelTimeHours: [6, 10] },
-  ],
-
-  // Connors River feeds into Isaac
-  '130410A': [
     { upstreamId: '130408A', travelTimeHours: [4, 8] },
   ],
 

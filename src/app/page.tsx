@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import useSWR from 'swr'
-import { CLERMONT_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/lib/constants'
+import { QLD_CENTER, CLERMONT_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/lib/constants'
 import Image from 'next/image'
 import Link from 'next/link'
 import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading, RoadEventsResponse } from '@/lib/types'
@@ -24,7 +24,7 @@ function LoadingPlaceholder({ height, label }: { height: string; label: string }
 // Dynamic imports for client-side only components
 const FloodMap = dynamic(() => import('@/components/dashboard/FloodMap'), {
   ssr: false,
-  loading: () => <LoadingPlaceholder height="h-80 md:h-[500px] lg:h-[600px]" label="Loading map..." />,
+  loading: () => <LoadingPlaceholder height="h-[400px] md:h-[500px] lg:h-[600px]" label="Loading map..." />,
 })
 
 const WaterLevelChart = dynamic(() => import('@/components/dashboard/WaterLevelChart'), {
@@ -38,7 +38,7 @@ import { WarningBanner } from '@/components/dashboard/WarningBanner'
 import LocationSearch from '@/components/dashboard/LocationSearch'
 import RainfallPanel from '@/components/dashboard/RainfallPanel'
 import BasinOverview from '@/components/dashboard/BasinOverview'
-import type { RainfallSummary } from '@/lib/data-sources/rainfall'
+import type { RainfallSummary, StateRainfallSummary } from '@/lib/data-sources/rainfall'
 import type { BOMObservation } from '@/lib/data-sources/bom-weather'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
@@ -53,18 +53,24 @@ interface GaugeDetailResponse {
   timestamp: string
 }
 
-// Type for rainfall API response
-interface RainfallAPIResponse {
-  regional: RainfallSummary | null
-  gauges: Record<string, RainfallSummary | null>
+// Type for statewide rainfall API response
+interface StatewideRainfallAPIResponse {
+  statewide: StateRainfallSummary | null
   timestamp: string
-  errors: string[]
+  isStatewide: true
+}
+
+// Type for location-specific rainfall API response
+interface LocationRainfallAPIResponse {
+  success: boolean
+  data: RainfallSummary | null
+  timestamp: string
 }
 
 export default function DashboardPage() {
-  // Default to Sandy Creek @ Clermont on first load
-  const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>('130207A')
-  const [mapCenter, setMapCenter] = useState<[number, number]>(CLERMONT_CENTER)
+  // Default to statewide view on first load
+  const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(null)
+  const [mapCenter, setMapCenter] = useState<[number, number]>(QLD_CENTER)
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
   const [showRoadClosures, setShowRoadClosures] = useState<boolean>(true)
@@ -95,16 +101,22 @@ export default function DashboardPage() {
     { refreshInterval: REFRESH_INTERVAL }
   )
 
-  // Fetch rainfall data
-  const { data: rainfallData, isLoading: rainfallLoading } = useSWR<RainfallAPIResponse>(
-    '/api/rainfall',
-    fetcher,
-    { refreshInterval: REFRESH_INTERVAL }
-  )
+  // Get selected gauge data from main list (for quick access)
+  const selectedGaugeBasic = waterLevels?.gauges?.find((g) => g.station.id === selectedGaugeId)
 
-  // Fetch BOM weather data
-  const { data: weatherData, isLoading: weatherLoading } = useSWR<{ success: boolean; data: BOMObservation | null }>(
-    '/api/weather',
+  // Fetch rainfall data - statewide by default, location-specific when gauge selected
+  const rainfallUrl = useMemo(() => {
+    if (selectedGaugeBasic) {
+      // Location-specific rainfall for selected gauge
+      const name = selectedGaugeBasic.station.name.split('@')[0].trim() || selectedGaugeBasic.station.name
+      return `/api/rainfall?lat=${selectedGaugeBasic.station.lat}&lng=${selectedGaugeBasic.station.lng}&name=${encodeURIComponent(name)}`
+    }
+    // Statewide aggregated rainfall
+    return '/api/rainfall'
+  }, [selectedGaugeBasic])
+
+  const { data: rainfallData, isLoading: rainfallLoading } = useSWR<StatewideRainfallAPIResponse | LocationRainfallAPIResponse>(
+    rainfallUrl,
     fetcher,
     { refreshInterval: REFRESH_INTERVAL }
   )
@@ -119,8 +131,26 @@ export default function DashboardPage() {
   // All gauges
   const allGauges = waterLevels?.gauges || []
 
-  // Get selected gauge data from main list (for quick access)
-  const selectedGaugeBasic = waterLevels?.gauges?.find((g) => g.station.id === selectedGaugeId)
+  // Get weather location based on selected gauge or map center
+  const weatherLocation = useMemo(() => {
+    if (selectedGaugeBasic) {
+      return {
+        lat: selectedGaugeBasic.station.lat,
+        lng: selectedGaugeBasic.station.lng,
+        name: selectedGaugeBasic.station.name.split('@')[0].trim() || selectedGaugeBasic.station.name
+      }
+    }
+    // Default to map center (Queensland center)
+    return { lat: mapCenter[0], lng: mapCenter[1], name: 'Queensland' }
+  }, [selectedGaugeBasic, mapCenter])
+
+  // Fetch BOM weather data - dynamic based on selected gauge
+  const weatherUrl = `/api/weather?lat=${weatherLocation.lat}&lng=${weatherLocation.lng}&name=${encodeURIComponent(weatherLocation.name)}`
+  const { data: weatherData, isLoading: weatherLoading } = useSWR<{ success: boolean; data: BOMObservation | null }>(
+    weatherUrl,
+    fetcher,
+    { refreshInterval: REFRESH_INTERVAL }
+  )
 
   // Find nearest gauges to searched location
   const nearestGauges = useMemo(() => {
@@ -132,22 +162,7 @@ export default function DashboardPage() {
     ).slice(0, 3)
   }, [searchedLocation, waterLevels?.gauges])
 
-  // Scroll to gauge details when a gauge is selected
-  useEffect(() => {
-    if (selectedGaugeId && gaugeDetailsRef.current) {
-      // Small delay to allow the DOM to update
-      const timer = setTimeout(() => {
-        // Respect user's motion preference
-        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        gaugeDetailsRef.current?.scrollIntoView({
-          behavior: prefersReducedMotion ? 'auto' : 'smooth',
-          block: 'start'
-        })
-      }, 100)
-      // Cleanup timeout on unmount or re-render
-      return () => clearTimeout(timer)
-    }
-  }, [selectedGaugeId])
+  // Note: Removed auto-scroll to gauge details - users can scroll manually if needed
 
   // Active warnings (not dismissed) - memoized to prevent unnecessary recalculations
   const activeWarnings = useMemo(() =>
@@ -264,10 +279,14 @@ export default function DashboardPage() {
           </div>
           <div className="lg:col-span-1">
             <RainfallPanel
-              rainfall={rainfallData?.regional || null}
+              rainfall={rainfallData && 'statewide' in rainfallData ? null : (rainfallData as LocationRainfallAPIResponse)?.data || null}
+              statewideRainfall={rainfallData && 'statewide' in rainfallData ? (rainfallData as StatewideRainfallAPIResponse).statewide : null}
               weather={weatherData?.data || null}
               isLoading={rainfallLoading || weatherLoading}
               compact
+              locationName={weatherLocation.name}
+              lat={weatherLocation.lat}
+              lng={weatherLocation.lng}
             />
           </div>
         </div>
@@ -277,7 +296,7 @@ export default function DashboardPage() {
           {/* Map Section */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-              <div className="h-80 md:h-[500px] lg:h-[600px]">
+              <div className="h-[400px] md:h-[500px] lg:h-[600px]">
                 <FloodMap
                   gauges={allGauges}
                   selectedGaugeId={selectedGaugeId || undefined}
@@ -468,37 +487,42 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Discharge and Rainfall Data */}
-                    {(selectedGaugeBasic.discharge || rainfallData?.gauges[selectedGaugeId]) && (
-                      <div className="grid grid-cols-2 gap-3 mb-4">
-                        {/* Discharge/Flow Rate */}
-                        {selectedGaugeBasic.discharge && (
-                          <div className="p-3 bg-blue-50 rounded-lg">
-                            <div className="text-xs text-blue-600 font-medium uppercase">Flow Rate</div>
-                            <div className="text-xl font-bold text-blue-900 mt-1">
-                              {selectedGaugeBasic.discharge.value.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                              <span className="text-sm font-normal ml-1">{selectedGaugeBasic.discharge.unit}</span>
-                            </div>
-                          </div>
-                        )}
-                        {/* Rainfall from Open-Meteo */}
-                        {rainfallData?.gauges[selectedGaugeId] && (
-                          <div className="p-3 bg-cyan-50 rounded-lg">
-                            <div className="text-xs text-cyan-600 font-medium uppercase">
-                              Rainfall (Last 24h)
-                            </div>
-                            <div className="text-xl font-bold text-cyan-900 mt-1">
-                              {rainfallData.gauges[selectedGaugeId]!.last24Hours.toFixed(1)}
-                              <span className="text-sm font-normal ml-1">mm</span>
-                            </div>
-                            {rainfallData.gauges[selectedGaugeId]!.current.isRaining && (
-                              <div className="text-xs text-cyan-600 mt-1">
-                                Currently raining
+                    {(() => {
+                      // Get location-specific rainfall for selected gauge
+                      const locationRainfall = rainfallData && !('statewide' in rainfallData) && rainfallData.success ? rainfallData.data : null
+                      if (!selectedGaugeBasic.discharge && !locationRainfall) return null
+                      return (
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                          {/* Discharge/Flow Rate */}
+                          {selectedGaugeBasic.discharge && (
+                            <div className="p-3 bg-blue-50 rounded-lg">
+                              <div className="text-xs text-blue-600 font-medium uppercase">Flow Rate</div>
+                              <div className="text-xl font-bold text-blue-900 mt-1">
+                                {selectedGaugeBasic.discharge.value.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                                <span className="text-sm font-normal ml-1">{selectedGaugeBasic.discharge.unit}</span>
                               </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                            </div>
+                          )}
+                          {/* Rainfall from Open-Meteo */}
+                          {locationRainfall && (
+                            <div className="p-3 bg-cyan-50 rounded-lg">
+                              <div className="text-xs text-cyan-600 font-medium uppercase">
+                                Rainfall (Last 24h)
+                              </div>
+                              <div className="text-xl font-bold text-cyan-900 mt-1">
+                                {locationRainfall.last24Hours.toFixed(1)}
+                                <span className="text-sm font-normal ml-1">mm</span>
+                              </div>
+                              {locationRainfall.current.isRaining && (
+                                <div className="text-xs text-cyan-600 mt-1">
+                                  Currently raining
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     {/* Data Source Info */}
                     <div className={cn(

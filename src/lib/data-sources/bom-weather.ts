@@ -29,10 +29,10 @@ export interface BOMWeatherResponse {
   error?: string
 }
 
-// Clermont coordinates
-const CLERMONT_LAT = -22.8245
-const CLERMONT_LNG = 147.6392
-const CLERMONT_STATION_ID = '94363'
+// Default coordinates (Queensland center)
+const DEFAULT_LAT = -22.5
+const DEFAULT_LNG = 148.5
+const DEFAULT_STATION_ID = 'qld-default'
 
 const API_TIMEOUT = 10000
 
@@ -71,18 +71,22 @@ function getWindDirection(degrees: number): string {
 }
 
 /**
- * Fetches current weather from Open-Meteo for Clermont region
+ * Fetches current weather from Open-Meteo for any location
  * (BOM blocks direct server API requests)
  */
-export async function fetchBOMWeather(stationId: string = CLERMONT_STATION_ID): Promise<BOMWeatherResponse> {
+export async function fetchBOMWeather(
+  lat: number = DEFAULT_LAT,
+  lng: number = DEFAULT_LNG,
+  locationName: string = 'Queensland'
+): Promise<BOMWeatherResponse> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
 
   try {
     // Use Open-Meteo for current weather (BOM blocks direct server access)
     const params = new URLSearchParams({
-      latitude: CLERMONT_LAT.toString(),
-      longitude: CLERMONT_LNG.toString(),
+      latitude: lat.toString(),
+      longitude: lng.toString(),
       current: 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,cloud_cover',
       hourly: 'precipitation',
       past_hours: '12',
@@ -121,8 +125,8 @@ export async function fetchBOMWeather(stationId: string = CLERMONT_STATION_ID): 
     }
 
     const observation: BOMObservation = {
-      stationName: 'Clermont Region',
-      stationId: stationId,
+      stationName: locationName,
+      stationId: DEFAULT_STATION_ID,
       timestamp: current.time,
       temperature: current.temperature_2m !== undefined ? Math.round(current.temperature_2m * 10) / 10 : null,
       apparentTemp: current.apparent_temperature !== undefined ? Math.round(current.apparent_temperature * 10) / 10 : null,
@@ -181,7 +185,6 @@ const bomWeatherClient = {
   fetchBOMWeather,
   getWeatherDescription,
   getWindDescription,
-  CLERMONT_STATION_ID,
 }
 
 export default bomWeatherClient

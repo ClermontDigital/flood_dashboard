@@ -224,6 +224,154 @@ export async function fetchRegionalRainfall(): Promise<RainfallResponse> {
 }
 
 /**
+ * Key sampling locations across Queensland for aggregated rainfall
+ */
+const QLD_SAMPLE_LOCATIONS = [
+  // Southeast QLD
+  { lat: -27.47, lng: 153.03, name: 'Brisbane' },
+  { lat: -27.61, lng: 152.76, name: 'Ipswich' },
+  { lat: -28.01, lng: 153.32, name: 'Gold Coast' },
+  // Wide Bay-Burnett
+  { lat: -24.85, lng: 152.35, name: 'Bundaberg' },
+  { lat: -26.19, lng: 152.67, name: 'Gympie' },
+  // Central QLD
+  { lat: -23.38, lng: 150.51, name: 'Rockhampton' },
+  { lat: -22.82, lng: 147.64, name: 'Clermont' },
+  // Mackay-Whitsunday
+  { lat: -21.12, lng: 149.11, name: 'Mackay' },
+  // North QLD
+  { lat: -19.30, lng: 146.79, name: 'Townsville' },
+  { lat: -18.65, lng: 146.17, name: 'Ingham' },
+  // Far North QLD
+  { lat: -16.92, lng: 145.77, name: 'Cairns' },
+  { lat: -17.52, lng: 146.03, name: 'Innisfail' },
+  // Darling Downs
+  { lat: -27.56, lng: 151.95, name: 'Toowoomba' },
+  { lat: -27.18, lng: 151.26, name: 'Dalby' },
+]
+
+/**
+ * Aggregated statewide rainfall summary
+ */
+export interface StateRainfallSummary {
+  // Aggregated totals (averages across all sample locations)
+  current: {
+    precipitation: number  // average mm/hr
+    isRaining: boolean     // true if raining anywhere
+    rainingLocations: number  // count of locations with rain
+  }
+  last24Hours: {
+    min: number
+    max: number
+    avg: number
+  }
+  next24Hours: {
+    min: number
+    max: number
+    avg: number
+  }
+  next7Days: {
+    min: number
+    max: number
+    avg: number
+  }
+  // Regional breakdown
+  regions: Array<{
+    name: string
+    lat: number
+    lng: number
+    last24Hours: number
+    next24Hours: number
+    isRaining: boolean
+  }>
+  // For backward compatibility - use averages
+  last7Days: number
+  fetchedAt: string
+  sampleCount: number
+}
+
+export interface StateRainfallResponse {
+  success: boolean
+  data: StateRainfallSummary | null
+  error?: string
+}
+
+/**
+ * Fetches and aggregates rainfall data from multiple Queensland locations
+ * Provides statewide overview with min/max/avg values
+ */
+export async function fetchStateRainfall(): Promise<StateRainfallResponse> {
+  try {
+    // Fetch rainfall for all sample locations in parallel
+    const results = await Promise.all(
+      QLD_SAMPLE_LOCATIONS.map(async (loc) => {
+        const result = await fetchRainfall(loc.lat, loc.lng, loc.name)
+        return { location: loc, result }
+      })
+    )
+
+    // Filter successful results
+    const successfulResults = results.filter(r => r.result.success && r.result.data)
+
+    if (successfulResults.length === 0) {
+      return { success: false, data: null, error: 'Failed to fetch rainfall data from any location' }
+    }
+
+    // Calculate aggregates
+    const currentPrecip = successfulResults.map(r => r.result.data!.current.precipitation)
+    const last24Totals = successfulResults.map(r => r.result.data!.last24Hours)
+    const next24Totals = successfulResults.map(r => r.result.data!.next24Hours)
+    const next7Totals = successfulResults.map(r => r.result.data!.next7Days)
+    const last7Totals = successfulResults.map(r => r.result.data!.last7Days)
+
+    const rainingLocations = successfulResults.filter(r => r.result.data!.current.isRaining).length
+
+    // Build regional breakdown
+    const regions = successfulResults.map(r => ({
+      name: r.location.name,
+      lat: r.location.lat,
+      lng: r.location.lng,
+      last24Hours: Math.round(r.result.data!.last24Hours * 10) / 10,
+      next24Hours: Math.round(r.result.data!.next24Hours * 10) / 10,
+      isRaining: r.result.data!.current.isRaining,
+    }))
+
+    const summary: StateRainfallSummary = {
+      current: {
+        precipitation: Math.round((currentPrecip.reduce((a, b) => a + b, 0) / currentPrecip.length) * 10) / 10,
+        isRaining: rainingLocations > 0,
+        rainingLocations,
+      },
+      last24Hours: {
+        min: Math.round(Math.min(...last24Totals) * 10) / 10,
+        max: Math.round(Math.max(...last24Totals) * 10) / 10,
+        avg: Math.round((last24Totals.reduce((a, b) => a + b, 0) / last24Totals.length) * 10) / 10,
+      },
+      next24Hours: {
+        min: Math.round(Math.min(...next24Totals) * 10) / 10,
+        max: Math.round(Math.max(...next24Totals) * 10) / 10,
+        avg: Math.round((next24Totals.reduce((a, b) => a + b, 0) / next24Totals.length) * 10) / 10,
+      },
+      next7Days: {
+        min: Math.round(Math.min(...next7Totals) * 10) / 10,
+        max: Math.round(Math.max(...next7Totals) * 10) / 10,
+        avg: Math.round((next7Totals.reduce((a, b) => a + b, 0) / next7Totals.length) * 10) / 10,
+      },
+      // Backward compatibility
+      last7Days: Math.round((last7Totals.reduce((a, b) => a + b, 0) / last7Totals.length) * 10) / 10,
+      regions,
+      fetchedAt: new Date().toISOString(),
+      sampleCount: successfulResults.length,
+    }
+
+    return { success: true, data: summary }
+  } catch (error) {
+    console.error('State rainfall fetch error:', error)
+    return { success: false, data: null, error: String(error) }
+  }
+}
+
+/**
  * Gets rainfall intensity description
  */
 export function getRainfallIntensity(mmPerHour: number): string {

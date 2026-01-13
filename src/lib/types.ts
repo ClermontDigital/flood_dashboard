@@ -4,8 +4,9 @@ export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'offline'
 // Trend indicators
 export type Trend = 'rising' | 'falling' | 'stable'
 
-// River systems in the Fitzroy Basin and Burnett Basin
+// River systems across Queensland
 export type RiverSystem =
+  // Fitzroy Basin
   | 'clermont'
   | 'theresa'
   | 'wolfang'
@@ -15,7 +16,56 @@ export type RiverSystem =
   | 'mackenzie'
   | 'comet'
   | 'fitzroy'
+  // Burnett Basin
   | 'burnett'
+  | 'kolan'
+  // Brisbane Basin
+  | 'brisbane'
+  | 'bremer'
+  | 'lockyer'
+  | 'northpine'
+  | 'mooloolah'
+  // Logan-Albert Basin
+  | 'logan'
+  | 'albert'
+  // Gold Coast
+  | 'nerang'
+  | 'coomera'
+  // Mary River Basin
+  | 'mary'
+  // Burdekin Basin (Townsville)
+  | 'burdekin'
+  | 'ross'
+  // Herbert Basin
+  | 'herbert'
+  // Cairns/Far North
+  | 'barron'
+  | 'mulgrave'
+  | 'johnstone'
+  | 'tully'
+  | 'daintree'
+  // Mackay/Pioneer
+  | 'pioneer'
+  | 'proserpine'
+  | 'broken'
+  // Condamine-Balonne (Darling Downs)
+  | 'condamine'
+  // Western Queensland
+  | 'flinders'
+  | 'leichhardt'
+  | 'cloncurry'
+  // Channel Country / Outback
+  | 'cooper'
+  | 'diamantina'
+  | 'warrego'
+  | 'paroo'
+  // Cape York
+  | 'mitchell'
+  | 'normanby'
+  // Gulf Country
+  | 'norman'
+  // Bowen area
+  | 'don'
 
 // Gauge station data
 export interface GaugeStation {

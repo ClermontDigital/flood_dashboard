@@ -1,14 +1,14 @@
 /**
  * BOM Weather API Route
- * GET /api/weather
+ * GET /api/weather?lat=-22.8&lng=147.6&name=Clermont
  *
- * Returns current weather observations from BOM for Clermont.
+ * Returns current weather observations for any QLD location.
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { fetchBOMWeather, type BOMObservation } from '@/lib/data-sources'
 
-export const revalidate = 600 // Cache for 10 minutes
+export const revalidate = 300 // Cache for 5 minutes
 
 interface WeatherResponse {
   success: boolean
@@ -17,9 +17,14 @@ interface WeatherResponse {
   error?: string
 }
 
-export async function GET(): Promise<NextResponse<WeatherResponse>> {
+export async function GET(request: NextRequest): Promise<NextResponse<WeatherResponse>> {
   try {
-    const result = await fetchBOMWeather()
+    const searchParams = request.nextUrl.searchParams
+    const lat = parseFloat(searchParams.get('lat') || '-22.5')
+    const lng = parseFloat(searchParams.get('lng') || '148.5')
+    const name = searchParams.get('name') || 'Queensland'
+
+    const result = await fetchBOMWeather(lat, lng, name)
 
     if (!result.success || !result.data) {
       return NextResponse.json({
@@ -36,7 +41,7 @@ export async function GET(): Promise<NextResponse<WeatherResponse>> {
       timestamp: new Date().toISOString(),
     }, {
       headers: {
-        'Cache-Control': 'public, s-maxage=600, stale-while-revalidate=60',
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
       },
     })
   } catch (error) {

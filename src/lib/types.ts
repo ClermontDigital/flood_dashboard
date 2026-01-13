@@ -4,7 +4,7 @@ export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'offline'
 // Trend indicators
 export type Trend = 'rising' | 'falling' | 'stable'
 
-// River systems in the Fitzroy Basin
+// River systems in the Fitzroy Basin and Burnett Basin
 export type RiverSystem =
   | 'clermont'
   | 'theresa'
@@ -15,6 +15,7 @@ export type RiverSystem =
   | 'mackenzie'
   | 'comet'
   | 'fitzroy'
+  | 'burnett'
 
 // Gauge station data
 export interface GaugeStation {
@@ -82,6 +83,8 @@ export interface DamStation {
   lat: number
   lng: number
   capacity?: number // ML - total storage capacity
+  isOffline?: boolean // No real-time monitoring data available
+  offlineReason?: string // Explanation for why data is unavailable
 }
 
 // Combined gauge data for display

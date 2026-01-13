@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
 import L from 'leaflet'
-import type { GaugeData, FloodStatus, RiverSystem, RoadEvent } from '@/lib/types'
-import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES } from '@/lib/constants'
+import type { GaugeData, FloodStatus, RiverSystem, RoadEvent, DamStation } from '@/lib/types'
+import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES, DAM_STATIONS, RAINVIEWER_CONFIG } from '@/lib/constants'
 import { cn, formatLevel, getTrendArrow, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Fix Leaflet default icon issue with Next.js
@@ -18,6 +18,8 @@ interface FloodMapProps {
   searchedLocation?: { lat: number; lng: number; name: string } | null
   roadEvents?: RoadEvent[]
   showRoadClosures?: boolean
+  showDams?: boolean
+  showRainRadar?: boolean
 }
 
 // Create custom colored markers for different status levels
@@ -176,6 +178,96 @@ function createRoadEventIcon(type: RoadEvent['type'], severity: RoadEvent['sever
   })
 }
 
+// Create dam marker icon
+function createDamIcon(isOffline: boolean = false): L.DivIcon {
+  const color = isOffline ? '#6b7280' : '#0ea5e9' // gray for offline, sky-500 for active
+
+  return L.divIcon({
+    className: 'dam-marker',
+    html: `
+      <div style="
+        width: 28px;
+        height: 28px;
+        background-color: ${color};
+        border: 3px solid white;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <svg viewBox="0 0 24 24" fill="white" style="width: 18px; height: 18px;">
+          <path d="M12 2L2 8v2h20V8L12 2zm0 2.5L18 8H6l6-3.5zM4 12v6c0 2 2 4 8 4s8-2 8-4v-6H4zm16 6c0 .5-2 2-8 2s-8-1.5-8-2v-4h16v4z"/>
+        </svg>
+      </div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14],
+  })
+}
+
+// RainViewer radar layer component
+function RainRadarLayer({ enabled }: { enabled: boolean }) {
+  const map = useMap()
+  const [radarLayer, setRadarLayer] = useState<L.TileLayer | null>(null)
+  const [radarTime, setRadarTime] = useState<string>('')
+
+  useEffect(() => {
+    if (!enabled) {
+      if (radarLayer) {
+        map.removeLayer(radarLayer)
+        setRadarLayer(null)
+      }
+      return
+    }
+
+    // Fetch radar data from RainViewer API
+    fetch(RAINVIEWER_CONFIG.apiUrl)
+      .then(res => res.json())
+      .then(data => {
+        if (data.radar && data.radar.past && data.radar.past.length > 0) {
+          // Get the most recent radar frame
+          const latestFrame = data.radar.past[data.radar.past.length - 1]
+          const host = data.host
+
+          // Create tile layer URL
+          const tileUrl = `${host}${latestFrame.path}/${RAINVIEWER_CONFIG.tileSize}/{z}/{x}/{y}/${RAINVIEWER_CONFIG.colorScheme}/${RAINVIEWER_CONFIG.smooth}_${RAINVIEWER_CONFIG.snow}.png`
+
+          // Remove old layer if exists
+          if (radarLayer) {
+            map.removeLayer(radarLayer)
+          }
+
+          // Add new radar layer
+          const newLayer = L.tileLayer(tileUrl, {
+            opacity: RAINVIEWER_CONFIG.opacity,
+            zIndex: 100,
+            attribution: RAINVIEWER_CONFIG.attribution,
+          })
+
+          newLayer.addTo(map)
+          setRadarLayer(newLayer)
+
+          // Update radar time
+          const radarDate = new Date(latestFrame.time * 1000)
+          setRadarTime(radarDate.toLocaleTimeString())
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch rain radar data:', err)
+      })
+
+    return () => {
+      if (radarLayer) {
+        map.removeLayer(radarLayer)
+      }
+    }
+  }, [enabled, map])
+
+  return null
+}
+
 // Component to handle map view changes
 function MapController({ center, selectedGaugeId, gauges, searchedLocation }: {
   center?: [number, number]
@@ -238,7 +330,7 @@ function MapLayerToggle({
   )
 }
 
-function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true }: FloodMapProps) {
+function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true }: FloodMapProps) {
   const mapCenter = center || CLERMONT_CENTER
   const [mapLayer, setMapLayer] = useState<MapLayerType>(() =>
     getLocalStorage<MapLayerType>('mapLayer', 'satellite')
@@ -251,6 +343,12 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
 
   const currentLayerConfig = MAP_LAYERS[mapLayer]
   const locationIcon = useMemo(() => createLocationIcon(), [])
+
+  // Memoize dam icons
+  const damIcons = useMemo(() => ({
+    active: createDamIcon(false),
+    offline: createDamIcon(true),
+  }), [])
 
   // Memoize road event icons
   const roadEventIcons = useMemo(() => {
@@ -312,6 +410,9 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
           gauges={gauges}
           searchedLocation={searchedLocation}
         />
+
+        {/* Rain radar overlay */}
+        <RainRadarLayer enabled={showRainRadar} />
 
         {/* River overlays with status-based colors */}
         {(Object.entries(RIVER_PATHS) as [RiverSystem, [number, number][]][]).map(([riverSystem, path]) => {
@@ -584,6 +685,65 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                       </svg>
                     </a>
                   </div>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        })}
+
+        {/* Dam markers */}
+        {showDams && DAM_STATIONS.map((dam) => {
+          const icon = dam.isOffline ? damIcons.offline : damIcons.active
+
+          return (
+            <Marker
+              key={dam.id}
+              position={[dam.lat, dam.lng]}
+              icon={icon}
+            >
+              <Popup>
+                <div className="min-w-[220px] p-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg className="w-5 h-5 text-sky-600" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L2 8v2h20V8L12 2zm0 2.5L18 8H6l6-3.5zM4 12v6c0 2 2 4 8 4s8-2 8-4v-6H4zm16 6c0 .5-2 2-8 2s-8-1.5-8-2v-4h16v4z"/>
+                    </svg>
+                    <h3 className="font-semibold text-gray-900 text-sm">
+                      {dam.name}
+                    </h3>
+                  </div>
+
+                  <p className="text-xs text-gray-500 mb-2">
+                    {dam.river} • {RIVER_SYSTEM_NAMES[dam.riverSystem]}
+                  </p>
+
+                  {dam.capacity && (
+                    <p className="text-xs text-gray-600 mb-2">
+                      Capacity: {(dam.capacity / 1000).toLocaleString()} GL ({dam.capacity.toLocaleString()} ML)
+                    </p>
+                  )}
+
+                  {dam.isOffline ? (
+                    <div className="mt-2 p-2 bg-gray-100 border border-gray-200 rounded text-xs text-gray-700">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-200 text-gray-700 font-semibold mb-1">
+                        NO LIVE DATA
+                      </span>
+                      <p className="mt-1">
+                        {dam.offlineReason || 'Real-time monitoring data is not available for this dam.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <a
+                      href="https://www.bom.gov.au/waterdata/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      View on BOM Water Data
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  )}
                 </div>
               </Popup>
             </Marker>

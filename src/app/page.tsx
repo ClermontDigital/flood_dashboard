@@ -68,6 +68,8 @@ export default function DashboardPage() {
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
   const [showRoadClosures, setShowRoadClosures] = useState<boolean>(true)
+  const [showDams, setShowDams] = useState<boolean>(true)
+  const [showRainRadar, setShowRainRadar] = useState<boolean>(true)
 
   // Ref for gauge details section to scroll to
   const gaugeDetailsRef = useRef<HTMLDivElement>(null)
@@ -284,51 +286,116 @@ export default function DashboardPage() {
                   searchedLocation={searchedLocation}
                   roadEvents={roadClosuresData?.events}
                   showRoadClosures={showRoadClosures}
+                  showDams={showDams}
+                  showRainRadar={showRainRadar}
                 />
               </div>
 
-              {/* Road Closures Toggle and Summary */}
-              <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowRoadClosures(!showRoadClosures)}
-                    className={cn(
-                      'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
-                      showRoadClosures ? 'bg-blue-600' : 'bg-gray-200'
-                    )}
-                    role="switch"
-                    aria-checked={showRoadClosures}
-                    aria-label="Show road closures on map"
-                  >
-                    <span
+              {/* Map Layer Toggles */}
+              <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
+                <div className="flex flex-wrap items-center gap-4 md:gap-6">
+                  {/* Road Closures Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowRoadClosures(!showRoadClosures)}
                       className={cn(
-                        'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                        showRoadClosures ? 'translate-x-5' : 'translate-x-0'
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showRoadClosures ? 'bg-blue-600' : 'bg-gray-200'
                       )}
-                    />
-                  </button>
-                  <span className="text-sm font-medium text-gray-700">
-                    Road Closures
-                  </span>
-                  {roadClosuresData?.events && roadClosuresData.events.length > 0 && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                      {roadClosuresData.events.length} active
-                    </span>
-                  )}
+                      role="switch"
+                      aria-checked={showRoadClosures}
+                      aria-label="Show road closures on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showRoadClosures ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Roads</span>
+                    {roadClosuresData?.events && roadClosuresData.events.length > 0 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                        {roadClosuresData.events.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Dams Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowDams(!showDams)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showDams ? 'bg-sky-600' : 'bg-gray-200'
+                      )}
+                      role="switch"
+                      aria-checked={showDams}
+                      aria-label="Show dams on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showDams ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Dams</span>
+                  </div>
+
+                  {/* Rain Radar Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowRainRadar(!showRainRadar)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showRainRadar ? 'bg-cyan-600' : 'bg-gray-200'
+                      )}
+                      role="switch"
+                      aria-checked={showRainRadar}
+                      aria-label="Show rain radar on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showRainRadar ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Rain Radar</span>
+                  </div>
+
+                  {/* Source Links */}
+                  <div className="flex items-center gap-3 ml-auto text-xs text-gray-500">
+                    <span>Sources:</span>
+                    <a
+                      href="https://qldtraffic.qld.gov.au/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      QLDTraffic
+                    </a>
+                    <span>|</span>
+                    <a
+                      href="https://www.bom.gov.au/waterdata/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      BOM
+                    </a>
+                    <span>|</span>
+                    <a
+                      href="https://www.rainviewer.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      RainViewer
+                    </a>
+                  </div>
                 </div>
-                {roadClosuresData?.sourceUrl && (
-                  <a
-                    href={roadClosuresData.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                  >
-                    Source: QLDTraffic
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                )}
               </div>
             </div>
 

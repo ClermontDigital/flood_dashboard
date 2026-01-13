@@ -35,6 +35,17 @@ export const DAM_STATIONS: DamStation[] = [
     lng: 148.0800,
     capacity: 1301000, // 1,301,000 ML total capacity
   },
+  {
+    id: 'theresa-dam',
+    name: 'Theresa Creek Dam',
+    river: 'Theresa Creek',
+    riverSystem: 'theresa',
+    lat: -22.9500,
+    lng: 147.5000,
+    capacity: 10000, // 10,000 ML total capacity
+    isOffline: true,
+    offlineReason: 'Isaac Regional Council does not provide public monitoring data for this dam',
+  },
 ]
 
 // Application name
@@ -141,6 +152,7 @@ export const RIVER_SYSTEM_NAMES: Record<RiverSystem, string> = {
   mackenzie: 'Mackenzie River',
   comet: 'Comet River',
   fitzroy: 'Fitzroy River',
+  burnett: 'Burnett River',
 }
 
 // All gauge stations
@@ -350,6 +362,98 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 150.5000,
     role: 'Final downstream',
   },
+
+  // Burnett River System (Bundaberg region) - 10 stations
+  {
+    id: '136101C',
+    name: 'Three Moon Creek @ Abercorn',
+    stream: 'Three Moon Creek',
+    riverSystem: 'burnett',
+    lat: -24.7500,
+    lng: 150.9500,
+    role: 'Upper tributary',
+  },
+  {
+    id: '136103B',
+    name: 'Burnett River @ Ceratodus',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -25.0833,
+    lng: 151.0333,
+    role: 'Upper Burnett',
+  },
+  {
+    id: '136106A',
+    name: 'Burnett River @ Eidsvold',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -25.3700,
+    lng: 151.1200,
+    role: 'Above Mundubbera',
+  },
+  {
+    id: '136315A',
+    name: 'Boyne River @ Carters',
+    stream: 'Boyne River',
+    riverSystem: 'burnett',
+    lat: -25.8500,
+    lng: 151.4500,
+    role: 'Southern tributary',
+  },
+  {
+    id: '136017B',
+    name: 'Burnett River @ Gayndah',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -25.6300,
+    lng: 151.6200,
+    role: 'Mid Burnett',
+  },
+  {
+    id: '136207A',
+    name: 'Barambah Creek @ Ban Ban',
+    stream: 'Barambah Creek',
+    riverSystem: 'burnett',
+    lat: -25.5000,
+    lng: 151.7833,
+    role: 'Eastern tributary',
+  },
+  {
+    id: '136004A',
+    name: 'Burnett River @ Jones Weir',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -25.4500,
+    lng: 151.8500,
+    role: 'Below Gayndah',
+  },
+  {
+    id: '136002D',
+    name: 'Burnett River @ Mount Lawless',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -25.1500,
+    lng: 152.0500,
+    role: 'Above Bundaberg',
+  },
+  {
+    id: '136007A',
+    name: 'Burnett River @ Figtree Creek',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -24.9500,
+    lng: 152.2500,
+    role: 'Bundaberg upstream',
+  },
+  {
+    id: '136001A',
+    name: 'Burnett River @ Bundaberg',
+    stream: 'Burnett River',
+    riverSystem: 'burnett',
+    lat: -24.8500,
+    lng: 152.3500,
+    role: 'Bundaberg city - key flood gauge',
+  },
 ]
 
 // Quick link locations
@@ -358,6 +462,8 @@ export const QUICK_LINKS = [
   { name: 'Emerald', lat: -23.5275, lng: 148.1592 },
   { name: 'Rockhampton', lat: -23.3791, lng: 150.5100 },
   { name: 'Moranbah', lat: -22.0016, lng: 148.0461 },
+  { name: 'Bundaberg', lat: -24.8500, lng: 152.3500 },
+  { name: 'Gayndah', lat: -25.6300, lng: 151.6200 },
 ]
 
 // Extended river paths for map overlay (with additional waypoints for better visibility)
@@ -448,6 +554,22 @@ export const RIVER_PATHS: Record<RiverSystem, [number, number][]> = {
     [-23.3833, 150.5000], // Fitzroy River @ Rockhampton
     [-23.42, 150.58],
     [-23.50, 150.68],
+  ],
+  burnett: [
+    // Burnett River (Monto area to Bundaberg/coast)
+    // Source: Wikipedia - flows from Burnett Range through Eidsvold, Mundubbera, Gayndah to Bundaberg
+    [-24.7500, 150.9500], // Three Moon Creek @ Abercorn (upper tributary)
+    [-24.90, 151.00], // Upper Burnett
+    [-25.0833, 151.0333], // Burnett River @ Ceratodus
+    [-25.3700, 151.1200], // Burnett River @ Eidsvold
+    [-25.5900, 151.3000], // Mundubbera area (Boyne River joins here)
+    [-25.6300, 151.6200], // Burnett River @ Gayndah
+    [-25.5000, 151.7833], // Barambah Creek junction @ Ban Ban
+    [-25.4500, 151.8500], // Burnett River @ Jones Weir
+    [-25.1500, 152.0500], // Burnett River @ Mount Lawless
+    [-24.9500, 152.2500], // Burnett River @ Figtree Creek
+    [-24.8500, 152.3500], // Burnett River @ Bundaberg
+    [-24.7700, 152.4200], // Burnett Heads (mouth at Coral Sea)
   ],
 }
 
@@ -559,6 +681,19 @@ export const CAMERA_STATIONS: CameraStation[] = [
 export const WATER_OVERLAY = {
   url: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
   attribution: 'Map data: &copy; OpenSeaMap contributors',
+}
+
+// RainViewer radar overlay configuration
+// API docs: https://www.rainviewer.com/api.html
+export const RAINVIEWER_CONFIG = {
+  apiUrl: 'https://api.rainviewer.com/public/weather-maps.json',
+  // Tile URL pattern: {host}{path}/256/{z}/{x}/{y}/{color}/{smooth}_{snow}.png
+  tileSize: 256,
+  colorScheme: 2, // 0-8, color scheme for radar (2 is good for precipitation)
+  smooth: 1, // 0 or 1, smoothing
+  snow: 1, // 0 or 1, show snow
+  opacity: 0.6,
+  attribution: 'Rain radar data &copy; <a href="https://www.rainviewer.com">RainViewer</a>',
 }
 
 // Emergency resources

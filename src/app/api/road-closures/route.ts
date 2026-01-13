@@ -6,11 +6,12 @@ const QLDTRAFFIC_API_URL = 'https://api.qldtraffic.qld.gov.au/v2/events'
 const QLDTRAFFIC_WEBSITE_URL = 'https://qldtraffic.qld.gov.au/'
 const API_KEY = '3e83add325cbb69ac4d8e5bf433d770b'
 
-// Fitzroy Basin region bounding box (approximate)
-const FITZROY_BASIN_BOUNDS = {
+// Fitzroy + Burnett Basin region bounding box (approximate)
+// Expanded to include Bundaberg/Burnett region
+const BASIN_BOUNDS = {
   north: -21.5,
-  south: -24.5,
-  east: 151.0,
+  south: -25.5, // Extended south to include Bundaberg
+  east: 152.5,  // Extended east to include Bundaberg coast
   west: 146.5,
 }
 
@@ -109,12 +110,12 @@ function getCoordinates(geometry?: QLDTrafficEvent['geometry']): { lat: number; 
   return null
 }
 
-function isInFitzroyBasin(lat: number, lng: number): boolean {
+function isInRegion(lat: number, lng: number): boolean {
   return (
-    lat >= FITZROY_BASIN_BOUNDS.south &&
-    lat <= FITZROY_BASIN_BOUNDS.north &&
-    lng >= FITZROY_BASIN_BOUNDS.west &&
-    lng <= FITZROY_BASIN_BOUNDS.east
+    lat >= BASIN_BOUNDS.south &&
+    lat <= BASIN_BOUNDS.north &&
+    lng >= BASIN_BOUNDS.west &&
+    lng <= BASIN_BOUNDS.east
   )
 }
 
@@ -155,8 +156,8 @@ export async function GET() {
       const coords = getCoordinates(geometry)
       if (!coords) continue
 
-      // Filter to Fitzroy Basin region
-      if (!isInFitzroyBasin(coords.lat, coords.lng)) continue
+      // Filter to Fitzroy + Burnett Basin region
+      if (!isInRegion(coords.lat, coords.lng)) continue
 
       const eventType = mapEventType(props.event_type, props.event_subtype)
 

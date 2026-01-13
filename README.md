@@ -260,6 +260,4 @@ This dashboard displays water level data from government sources for **informati
 
 **In an emergency, call 000.**
 
-## About Clermont Digital
 
-[Clermont Digital](https://clermontdigital.com.au) is a technology company based in regional Queensland, building practical digital solutions for rural communities. GAUGE was created to help Queensland residents stay informed about flood conditions using freely available government data.

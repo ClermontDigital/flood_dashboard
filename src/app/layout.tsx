@@ -108,7 +108,7 @@ export default function RootLayout({
           <div className="max-w-7xl mx-auto px-4">
             <div className="text-center">
               <p className="text-sm">
-                A project by{' '}
+                A community project by{' '}
                 <a
                   href="https://clermontdigital.com.au"
                   target="_blank"

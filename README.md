@@ -178,7 +178,6 @@ GAUGE is deployed on Google Cloud Run with Firestore for data caching.
 
 **Live Sites:**
 - **Production**: https://gauge.clermont.digital
-- **Test**: https://gauge-dashboard-test-979660110789.asia-southeast1.run.app
 
 **Deploy to Cloud Run:**
 

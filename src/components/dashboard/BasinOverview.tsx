@@ -13,9 +13,38 @@ interface BasinOverviewProps {
 }
 
 // Group gauges by river system for the basin view
-const RIVER_ORDER: RiverSystem[] = ['clermont', 'theresa', 'wolfang', 'douglas', 'isaac', 'nogoa', 'mackenzie', 'comet', 'fitzroy', 'burnett']
+// Ordered by region: SEQ → Wide Bay → Central → Mackay → North → Far North → Darling Downs → Western
+const RIVER_ORDER: RiverSystem[] = [
+  // Southeast QLD
+  'brisbane', 'bremer', 'lockyer', 'northpine', 'logan', 'albert', 'nerang', 'coomera',
+  // Sunshine Coast
+  'mooloolah',
+  // Wide Bay-Burnett
+  'mary', 'burnett', 'kolan',
+  // Central QLD (Fitzroy Basin)
+  'clermont', 'theresa', 'wolfang', 'douglas', 'isaac', 'nogoa', 'mackenzie', 'comet', 'fitzroy',
+  // Mackay-Whitsunday
+  'pioneer', 'proserpine', 'broken',
+  // Bowen area
+  'don',
+  // North QLD
+  'burdekin', 'ross', 'herbert',
+  // Far North QLD
+  'barron', 'mulgrave', 'johnstone', 'tully', 'daintree',
+  // Cape York
+  'mitchell', 'normanby',
+  // Gulf Country
+  'norman',
+  // Darling Downs
+  'condamine',
+  // Western Queensland
+  'flinders', 'leichhardt', 'cloncurry',
+  // Channel Country / Outback
+  'cooper', 'diamantina', 'warrego', 'paroo',
+]
 
 const RIVER_LABELS: Record<RiverSystem, string> = {
+  // Fitzroy Basin
   clermont: 'Sandy Creek',
   theresa: 'Theresa Creek',
   wolfang: 'Wolfang Creek',
@@ -25,7 +54,56 @@ const RIVER_LABELS: Record<RiverSystem, string> = {
   mackenzie: 'Mackenzie River',
   comet: 'Comet River',
   fitzroy: 'Fitzroy River',
+  // Burnett Basin
   burnett: 'Burnett River',
+  kolan: 'Kolan River',
+  // Brisbane Basin
+  brisbane: 'Brisbane River',
+  bremer: 'Bremer River',
+  lockyer: 'Lockyer Creek',
+  northpine: 'North Pine River',
+  mooloolah: 'Mooloolah River',
+  // Logan-Albert Basin
+  logan: 'Logan River',
+  albert: 'Albert River',
+  // Gold Coast
+  nerang: 'Nerang River',
+  coomera: 'Coomera River',
+  // Mary River Basin
+  mary: 'Mary River',
+  // Burdekin Basin
+  burdekin: 'Burdekin River',
+  ross: 'Ross River',
+  // Herbert Basin
+  herbert: 'Herbert River',
+  // Cairns/Far North
+  barron: 'Barron River',
+  mulgrave: 'Mulgrave River',
+  johnstone: 'Johnstone River',
+  tully: 'Tully River',
+  daintree: 'Daintree River',
+  // Mackay/Pioneer
+  pioneer: 'Pioneer River',
+  proserpine: 'Proserpine River',
+  broken: 'Broken River',
+  // Condamine-Balonne
+  condamine: 'Condamine River',
+  // Western Queensland
+  flinders: 'Flinders River',
+  leichhardt: 'Leichhardt River',
+  cloncurry: 'Cloncurry River',
+  // Channel Country / Outback
+  cooper: 'Cooper Creek',
+  diamantina: 'Diamantina River',
+  warrego: 'Warrego River',
+  paroo: 'Paroo River',
+  // Cape York
+  mitchell: 'Mitchell River',
+  normanby: 'Normanby River',
+  // Gulf Country
+  norman: 'Norman River',
+  // Bowen area
+  don: 'Don River',
 }
 
 export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoading }: BasinOverviewProps) {
@@ -82,7 +160,7 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
     <div className="bg-white rounded-lg shadow-sm p-4">
       {/* Basin Summary */}
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-900">Fitzroy Basin Overview</h2>
+        <h2 className="text-sm font-semibold text-gray-900">Queensland Rivers Overview</h2>
         <div className="flex items-center gap-3 text-xs text-gray-500">
           <span>{basinStats.active}/{basinStats.total} gauges active</span>
           {basinStats.rising > 0 && (

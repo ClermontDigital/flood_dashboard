@@ -2,8 +2,7 @@
  * Flood Warnings API Route
  * GET /api/warnings
  *
- * Returns active BOM flood warnings for the Fitzroy Basin area.
- * Filters warnings relevant to Clermont and surrounding regions.
+ * Returns active BOM flood warnings for all of Queensland.
  */
 
 import { NextResponse } from 'next/server'
@@ -51,23 +50,36 @@ export async function GET(): Promise<NextResponse<WarningsResponse>> {
     if (bomResult) {
       warnings = bomResult
 
-      // Filter to only include relevant areas
+      // Filter to only include Queensland areas
       warnings = warnings.filter((warning) => {
         const area = warning.area.toLowerCase()
         const title = warning.title.toLowerCase()
         const summary = warning.summary.toLowerCase()
 
+        // Queensland regions and river systems
         const relevantAreas = [
-          'fitzroy',
-          'isaac',
-          'mackenzie',
-          'clermont',
-          'nogoa',
-          'comet',
-          'central queensland',
-          'central highlands',
-          'rockhampton',
-          'emerald',
+          // State
+          'queensland', 'qld',
+          // Southeast Queensland
+          'brisbane', 'ipswich', 'gold coast', 'logan', 'moreton', 'lockyer', 'bremer',
+          'sunshine coast', 'noosa', 'caloundra', 'beenleigh', 'beaudesert',
+          // Wide Bay-Burnett
+          'bundaberg', 'burnett', 'maryborough', 'gympie', 'mary river', 'hervey bay',
+          // Central Queensland
+          'fitzroy', 'isaac', 'mackenzie', 'clermont', 'nogoa', 'comet',
+          'central queensland', 'central highlands', 'rockhampton', 'emerald', 'gladstone',
+          // Mackay-Whitsunday
+          'mackay', 'pioneer', 'proserpine', 'whitsunday', 'bowen',
+          // North Queensland
+          'townsville', 'burdekin', 'ross', 'haughton', 'ayr', 'ingham', 'herbert',
+          // Far North Queensland
+          'cairns', 'barron', 'mulgrave', 'johnstone', 'innisfail', 'mareeba', 'atherton',
+          'daintree', 'mossman', 'cooktown', 'douglas',
+          // Darling Downs
+          'darling downs', 'toowoomba', 'warwick', 'dalby', 'chinchilla', 'condamine',
+          'roma', 'miles', 'goondiwindi',
+          // Western Queensland
+          'mount isa', 'longreach', 'winton', 'cloncurry', 'julia creek',
         ]
 
         return relevantAreas.some(

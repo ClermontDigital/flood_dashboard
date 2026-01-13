@@ -1,8 +1,8 @@
-# GAUGE - Fitzroy Basin Flood Dashboard
+# GAUGE - Queensland Flood Tracking Dashboard
 
-An open source project by **[Clermont Digital](https://clermontdigital.com.au)**.
+A project by **[Clermont Digital](https://clermontdigital.com.au)**.
 
-Real-time water level monitoring and flood warning dashboard for Clermont, QLD and the surrounding Fitzroy Basin region.
+Real-time water level monitoring and flood warning dashboard covering all of Queensland, from the Gold Coast to Cape York, including Brisbane, Townsville, Cairns, Mackay, Rockhampton, and remote Western Queensland.
 
 ## Approach & Architecture
 
@@ -56,14 +56,16 @@ GAUGE uses **Firestore + Cloud Scheduler** for reliable data caching across Clou
 
 ## Features
 
-- **Real-time Water Levels**: Live data from 19 gauge stations across the Fitzroy Basin
+- **Real-time Water Levels**: Live data from 100+ gauge stations across Queensland
 - **Discharge/Flow Rates**: Water flow data (ML/day or cumec) at gauge locations
-- **Dam Storage Levels**: Fairbairn Dam storage volume and percentage full
-- **Rainfall Data**: Rainfall readings at gauge stations
+- **Dam Storage Levels**: 30+ major dams including Wivenhoe, Burdekin Falls, Fairbairn
+- **Rainfall Data**: Statewide aggregated rainfall with location-specific data when gauges selected
+- **Road Closures**: Real-time flood-related road closures from QLD Traffic
 - **Interactive Map**: Satellite/street/hybrid map views with status-coded markers
 - **Address Search**: Search by address, town, river, or gauge name
 - **Historical Charts**: 24-hour water level history with flood threshold indicators
 - **Flood Warnings**: Real-time BOM flood warning integration
+- **Rain Radar**: Live weather radar overlay from RainViewer
 - **Mobile Responsive**: Fully functional on all device sizes
 - **Offline-friendly**: Cached data for poor connectivity areas
 
@@ -144,31 +146,53 @@ Official flood warnings and alerts for Queensland catchments.
 
 ## Monitored Infrastructure
 
-### Gauge Stations (19 Total)
+### River Systems (45+ Catchments)
 
-| River System | Gauges |
-|--------------|--------|
-| Clermont/Sandy Creek | Sandy Creek @ Clermont |
-| Theresa Creek | Theresa Creek @ Valeria, Gregory Hwy |
-| Isaac River | Yatton, Deverill |
-| Connors River | Mount Bridget, Pink Lagoon |
-| Nogoa River | Craigmore, Duck Ponds |
-| Mackenzie River | Bingegang, Coolmaringa, Rileys Crossing |
-| Comet River | Comet Weir, The Lake |
-| Fitzroy River | The Gap, Yaamba, Rockhampton |
+**Southeast Queensland**
+- Brisbane River, Bremer River, Lockyer Creek, North Pine River
+- Logan River, Albert River, Nerang River, Coomera River
+- Mooloolah River, Mary River
 
-### Hydrology
+**Wide Bay-Burnett**
+- Burnett River, Kolan River
 
-The Fitzroy Basin river systems flow as follows:
-- **Sandy Creek** (Clermont) → **Theresa Creek** → **Nogoa River**
-- **Isaac River** + **Connors River** → **Mackenzie River**
-- **Nogoa River** + **Comet River** → **Mackenzie River** → **Fitzroy River** → Coast
+**Central Queensland (Fitzroy Basin)**
+- Sandy Creek (Clermont), Theresa Creek, Wolfang Creek, Douglas Creek
+- Isaac River, Nogoa River, Mackenzie River, Comet River, Fitzroy River
 
-### Dam Storage
+**Mackay-Whitsunday**
+- Pioneer River, Proserpine River, Broken River, Don River
 
-| Dam | Station ID | River | Capacity |
-|-----|------------|-------|----------|
-| Fairbairn Dam | 130216A | Nogoa River | 1,301,000 ML |
+**North Queensland**
+- Burdekin River, Ross River, Herbert River
+
+**Far North Queensland**
+- Barron River, Mulgrave River, Johnstone River, Tully River, Daintree River
+
+**Cape York**
+- Mitchell River, Normanby River
+
+**Gulf Country**
+- Norman River, Flinders River, Leichhardt River, Cloncurry River
+
+**Channel Country / Outback**
+- Cooper Creek, Diamantina River, Warrego River, Paroo River
+
+**Darling Downs**
+- Condamine River
+
+### Major Dams (30+)
+
+| Region | Dams |
+|--------|------|
+| Southeast QLD | Wivenhoe, Somerset, Hinze, North Pine, Leslie Harrison, Lake Manchester, Moogerah, Lake Maroon, Lake Clarendon, Atkinson |
+| Sunshine Coast | Ewen Maddock, Baroon Pocket |
+| Burnett | Paradise, Boondooma, Fred Haigh, Wuruma |
+| Central QLD | Fairbairn, Theresa Creek |
+| Mackay-Whitsunday | Peter Faust, Kinchant, Eungella, Teemburra |
+| North QLD | Burdekin Falls, Ross River, Tinaroo Falls, Copperlode |
+| Western QLD | Julius, Lake Moondarra, Lake Fred Tritton |
+| Darling Downs | Leslie, Storm King, Coolmunda, Glenlyon |
 
 ## Production Deployment
 
@@ -236,20 +260,6 @@ This dashboard displays water level data from government sources for **informati
 
 **In an emergency, call 000.**
 
-## Contributing
-
-GAUGE is an open source project and we welcome contributions! Whether it's bug fixes, new features, or documentation improvements, please feel free to submit a pull request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
 ## About Clermont Digital
 
-[Clermont Digital](https://clermontdigital.com.au) is a technology company based in regional Queensland, building practical digital solutions for rural communities. GAUGE was created to help residents of Clermont and surrounding areas stay informed about flood conditions using freely available government data.
-
-## License
-
-Apache License 2.0 - See [LICENSE](LICENSE) for details.
+[Clermont Digital](https://clermontdigital.com.au) is a technology company based in regional Queensland, building practical digital solutions for rural communities. GAUGE was created to help Queensland residents stay informed about flood conditions using freely available government data.

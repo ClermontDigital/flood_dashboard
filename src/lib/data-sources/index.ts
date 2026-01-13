@@ -43,11 +43,14 @@ export {
   fetchRainfall,
   fetchRainfallForGauges,
   fetchRegionalRainfall,
+  fetchStateRainfall,
   getRainfallIntensity,
   getRainfallRisk,
   type RainfallPoint,
   type RainfallSummary,
   type RainfallResponse,
+  type StateRainfallSummary,
+  type StateRainfallResponse,
 } from './rainfall'
 
 export {

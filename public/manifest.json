@@ -1,7 +1,7 @@
 {
-  "name": "Clermont Flood Dashboard",
-  "short_name": "Flood Watch",
-  "description": "Real-time flood warning dashboard for Clermont, QLD",
+  "name": "GAUGE - Queensland Flood Tracking",
+  "short_name": "GAUGE",
+  "description": "Real-time water level monitoring and flood warnings across Queensland",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f9fafb",

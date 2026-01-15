@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { RoadEvent, RoadEventsResponse } from '@/lib/types'
-
-// QLDTraffic GeoJSON API endpoint
-const QLDTRAFFIC_API_URL = 'https://api.qldtraffic.qld.gov.au/v2/events'
-const QLDTRAFFIC_WEBSITE_URL = 'https://qldtraffic.qld.gov.au/'
-const API_KEY = '3e83add325cbb69ac4d8e5bf433d770b'
+import { getRoadClosures } from '@/lib/firestore'
+import { env } from '@/lib/env'
 
 // Queensland state bounding box
 // Covers from Cairns to Gold Coast, coast to inland
@@ -121,11 +118,39 @@ function isInRegion(lat: number, lng: number): boolean {
 
 export async function GET() {
   try {
-    const response = await fetch(`${QLDTRAFFIC_API_URL}?apikey=${API_KEY}`, {
+    // First try Firestore cache (populated by cron job)
+    const cachedData = await getRoadClosures(10 * 60 * 1000) // 10 min max age
+
+    if (cachedData) {
+      const result: RoadEventsResponse = {
+        events: cachedData.events,
+        lastUpdated: cachedData.timestamp,
+        source: 'qldtraffic',
+        sourceUrl: env.qldTrafficWebsiteUrl,
+      }
+      return NextResponse.json(result)
+    }
+
+    // Fallback: fetch directly from QLDTraffic (may hit rate limits)
+    console.log('[Road Closures API] Cache miss, fetching from QLDTraffic directly')
+
+    // Check if API key is configured
+    if (!env.qldTrafficApiKey) {
+      console.warn('[Road Closures API] QLDTraffic API key not configured')
+      return NextResponse.json({
+        events: [],
+        lastUpdated: new Date().toISOString(),
+        source: 'qldtraffic',
+        sourceUrl: env.qldTrafficWebsiteUrl,
+        error: 'Road closure data unavailable - API not configured'
+      } as RoadEventsResponse & { error: string })
+    }
+
+    const response = await fetch(`${env.qldTrafficApiUrl}?apikey=${env.qldTrafficApiKey}`, {
       headers: {
         'Accept': 'application/json',
       },
-      cache: 'no-store', // Response is too large for Next.js cache, use SWR on client instead
+      cache: 'no-store',
     })
 
     if (!response.ok) {
@@ -135,18 +160,15 @@ export async function GET() {
           events: [],
           lastUpdated: new Date().toISOString(),
           source: 'qldtraffic',
-          sourceUrl: QLDTRAFFIC_WEBSITE_URL,
+          sourceUrl: env.qldTrafficWebsiteUrl,
           error: 'Failed to fetch road closure data'
         } as RoadEventsResponse & { error: string },
-        { status: 200 } // Return empty data rather than error
+        { status: 200 }
       )
     }
 
     const data = await response.json()
-
-    // Handle different response formats
     const features = data.features || data.events || data || []
-
     const events: RoadEvent[] = []
 
     for (const feature of features) {
@@ -156,12 +178,9 @@ export async function GET() {
       const coords = getCoordinates(geometry)
       if (!coords) continue
 
-      // Filter to Queensland region
       if (!isInRegion(coords.lat, coords.lng)) continue
 
       const eventType = mapEventType(props.event_type, props.event_subtype)
-
-      // Only include flooding, road closures, and hazards
       if (!['flooding', 'road_closure', 'hazard'].includes(eventType)) continue
 
       events.push({
@@ -178,7 +197,7 @@ export async function GET() {
         endTime: props.duration?.end,
         severity: mapSeverity(props.impact?.impact_type, props.event_type),
         source: 'qldtraffic',
-        sourceUrl: QLDTRAFFIC_WEBSITE_URL,
+        sourceUrl: env.qldTrafficWebsiteUrl,
         lastUpdated: new Date().toISOString(),
       })
     }
@@ -187,7 +206,7 @@ export async function GET() {
       events,
       lastUpdated: new Date().toISOString(),
       source: 'qldtraffic',
-      sourceUrl: QLDTRAFFIC_WEBSITE_URL,
+      sourceUrl: env.qldTrafficWebsiteUrl,
     }
 
     return NextResponse.json(result)
@@ -198,7 +217,7 @@ export async function GET() {
         events: [],
         lastUpdated: new Date().toISOString(),
         source: 'qldtraffic',
-        sourceUrl: QLDTRAFFIC_WEBSITE_URL,
+        sourceUrl: env.qldTrafficWebsiteUrl,
         error: 'Failed to fetch road closure data'
       } as RoadEventsResponse & { error: string },
       { status: 200 }

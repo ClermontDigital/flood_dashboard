@@ -6,6 +6,11 @@ export const env = {
   bomWaterdataUrl: process.env.NEXT_PUBLIC_BOM_WATERDATA_URL || 'https://www.bom.gov.au/waterdata/services',
   bomWarningsUrl: process.env.NEXT_PUBLIC_BOM_WARNINGS_URL || 'https://www.bom.gov.au/fwo/IDQ60000.warnings_qld.xml',
 
+  // QLDTraffic API (road closures)
+  qldTrafficApiKey: process.env.QLDTRAFFIC_API_KEY || '',
+  qldTrafficApiUrl: process.env.QLDTRAFFIC_API_URL || 'https://api.qldtraffic.qld.gov.au/v2/events',
+  qldTrafficWebsiteUrl: 'https://qldtraffic.qld.gov.au/',
+
   // Application settings
   isDevelopment: process.env.NODE_ENV === 'development',
   isProduction: process.env.NODE_ENV === 'production',
@@ -29,6 +34,9 @@ export function validateEnv(): void {
   if (env.isProduction) {
     if (env.enableMockData) {
       console.warn('WARNING: Mock data is enabled in production. This should be disabled.')
+    }
+    if (!env.qldTrafficApiKey) {
+      console.warn('WARNING: QLDTRAFFIC_API_KEY is not set. Road closure data will be unavailable.')
     }
   }
 }

@@ -6,18 +6,44 @@
  */
 
 import { Firestore, FieldValue } from '@google-cloud/firestore'
-import type { WaterLevel, DischargeReading, RainfallReading, DamStorageReading } from './types'
+import type { WaterLevel, DischargeReading, RainfallReading, DamStorageReading, RoadEvent } from './types'
+import type { StateRainfallSummary } from './data-sources/rainfall'
 
-// Initialize Firestore client
-// In Cloud Run, credentials are automatically provided via the service account
-const db = new Firestore({
-  projectId: process.env.GOOGLE_CLOUD_PROJECT || 'clermontdigital-1741262269603',
-})
+// Check if we have credentials (Cloud Run provides these automatically)
+const hasCredentials = !!(
+  process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  process.env.K_SERVICE // Cloud Run sets this
+)
+
+// Initialize Firestore client lazily to avoid errors in local dev
+let db: Firestore | null = null
+
+function getDb(): Firestore | null {
+  if (db) return db
+
+  // Skip Firestore in local dev without credentials
+  if (process.env.NODE_ENV === 'development' && !hasCredentials) {
+    return null
+  }
+
+  try {
+    db = new Firestore({
+      projectId: process.env.GOOGLE_CLOUD_PROJECT || 'clermontdigital-1741262269603',
+    })
+    return db
+  } catch (error) {
+    console.warn('[Firestore] Failed to initialize:', error)
+    return null
+  }
+}
 
 // Collection names
 const COLLECTIONS = {
   READINGS: 'readings',
   METADATA: 'metadata',
+  STATEWIDE_RAINFALL: 'statewideRainfall',
+  ROAD_CLOSURES: 'roadClosures',
 } as const
 
 // Document structure for water level readings
@@ -46,8 +72,11 @@ export interface FetchMetadata {
  * Returns null if no data exists or data is too stale
  */
 export async function getWaterLevelData(maxAgeMs: number = 10 * 60 * 1000): Promise<StoredWaterLevelData | null> {
+  const firestore = getDb()
+  if (!firestore) return null
+
   try {
-    const doc = await db.collection(COLLECTIONS.READINGS).doc('latest').get()
+    const doc = await firestore.collection(COLLECTIONS.READINGS).doc('latest').get()
 
     if (!doc.exists) {
       console.log('[Firestore] No data found in readings/latest')
@@ -83,6 +112,9 @@ export async function storeWaterLevelData(
   sources: string[],
   isElevated: boolean
 ): Promise<boolean> {
+  const firestore = getDb()
+  if (!firestore) return false
+
   try {
     const now = Date.now()
 
@@ -98,10 +130,10 @@ export async function storeWaterLevelData(
     }
 
     // Store the latest readings
-    await db.collection(COLLECTIONS.READINGS).doc('latest').set(data)
+    await firestore.collection(COLLECTIONS.READINGS).doc('latest').set(data)
 
     // Update metadata
-    const metadataRef = db.collection(COLLECTIONS.METADATA).doc('fetchStatus')
+    const metadataRef = firestore.collection(COLLECTIONS.METADATA).doc('fetchStatus')
     await metadataRef.set({
       lastSuccessfulFetch: now,
       lastAttempt: now,
@@ -115,10 +147,13 @@ export async function storeWaterLevelData(
 
     // Record the error in metadata
     try {
-      await db.collection(COLLECTIONS.METADATA).doc('fetchStatus').set({
-        lastAttempt: Date.now(),
-        lastError: error instanceof Error ? error.message : 'Unknown error',
-      }, { merge: true })
+      const fs = getDb()
+      if (fs) {
+        await fs.collection(COLLECTIONS.METADATA).doc('fetchStatus').set({
+          lastAttempt: Date.now(),
+          lastError: error instanceof Error ? error.message : 'Unknown error',
+        }, { merge: true })
+      }
     } catch {
       // Ignore metadata update errors
     }
@@ -131,8 +166,11 @@ export async function storeWaterLevelData(
  * Get fetch metadata (for monitoring)
  */
 export async function getFetchMetadata(): Promise<FetchMetadata | null> {
+  const firestore = getDb()
+  if (!firestore) return null
+
   try {
-    const doc = await db.collection(COLLECTIONS.METADATA).doc('fetchStatus').get()
+    const doc = await firestore.collection(COLLECTIONS.METADATA).doc('fetchStatus').get()
 
     if (!doc.exists) {
       return null
@@ -149,8 +187,11 @@ export async function getFetchMetadata(): Promise<FetchMetadata | null> {
  * Record a fetch error in metadata
  */
 export async function recordFetchError(error: string): Promise<void> {
+  const firestore = getDb()
+  if (!firestore) return
+
   try {
-    await db.collection(COLLECTIONS.METADATA).doc('fetchStatus').set({
+    await firestore.collection(COLLECTIONS.METADATA).doc('fetchStatus').set({
       lastAttempt: Date.now(),
       lastError: error,
       errorCount: FieldValue.increment(1),
@@ -163,17 +204,204 @@ export async function recordFetchError(error: string): Promise<void> {
 /**
  * Record a successful fetch in metadata
  */
-export async function recordFetchSuccess(): Promise<void> {
+export async function recordFetchSuccess(clearPartialErrors?: {
+  rainfall?: boolean
+  roadClosures?: boolean
+}): Promise<void> {
+  const firestore = getDb()
+  if (!firestore) return
+
   try {
-    await db.collection(COLLECTIONS.METADATA).doc('fetchStatus').set({
+    const updates: Record<string, unknown> = {
       lastSuccessfulFetch: Date.now(),
       lastAttempt: Date.now(),
       successCount: FieldValue.increment(1),
       lastError: FieldValue.delete(),
-    }, { merge: true })
+    }
+
+    // Clear partial errors if their respective fetches succeeded
+    if (clearPartialErrors?.rainfall) {
+      updates.lastRainfallError = FieldValue.delete()
+      updates.lastRainfallErrorAt = FieldValue.delete()
+    }
+    if (clearPartialErrors?.roadClosures) {
+      updates.lastRoadClosuresError = FieldValue.delete()
+      updates.lastRoadClosuresErrorAt = FieldValue.delete()
+    }
+
+    await firestore.collection(COLLECTIONS.METADATA).doc('fetchStatus').set(updates, { merge: true })
   } catch (e) {
     console.error('[Firestore] Error recording fetch success:', e)
   }
 }
 
-export { db }
+/**
+ * Record partial failures (e.g., rainfall or road closures failed but water levels succeeded)
+ */
+export async function recordPartialFailures(failures: {
+  rainfall?: string
+  roadClosures?: string
+}): Promise<void> {
+  const firestore = getDb()
+  if (!firestore) return
+
+  try {
+    const updates: Record<string, unknown> = {
+      lastAttempt: Date.now(),
+    }
+
+    if (failures.rainfall) {
+      updates.lastRainfallError = failures.rainfall
+      updates.lastRainfallErrorAt = Date.now()
+    }
+
+    if (failures.roadClosures) {
+      updates.lastRoadClosuresError = failures.roadClosures
+      updates.lastRoadClosuresErrorAt = Date.now()
+    }
+
+    await firestore.collection(COLLECTIONS.METADATA).doc('fetchStatus').set(updates, { merge: true })
+  } catch (e) {
+    console.error('[Firestore] Error recording partial failures:', e)
+  }
+}
+
+// ============================================
+// Statewide Rainfall Storage
+// ============================================
+
+export interface StoredStatewideRainfall {
+  data: StateRainfallSummary
+  timestamp: string
+  fetchedAt: number
+}
+
+/**
+ * Store statewide rainfall data to Firestore
+ */
+export async function storeStatewideRainfall(data: StateRainfallSummary): Promise<boolean> {
+  const firestore = getDb()
+  if (!firestore) return false
+
+  try {
+    const now = Date.now()
+    const stored: StoredStatewideRainfall = {
+      data,
+      timestamp: new Date().toISOString(),
+      fetchedAt: now,
+    }
+
+    await firestore.collection(COLLECTIONS.STATEWIDE_RAINFALL).doc('latest').set(stored)
+    console.log(`[Firestore] Stored statewide rainfall: ${data.sampleCount} locations`)
+    return true
+  } catch (error) {
+    console.error('[Firestore] Error storing statewide rainfall:', error)
+    return false
+  }
+}
+
+/**
+ * Get statewide rainfall data from Firestore
+ */
+export async function getStatewideRainfall(maxAgeMs: number = 10 * 60 * 1000): Promise<StoredStatewideRainfall | null> {
+  const firestore = getDb()
+  if (!firestore) return null
+
+  try {
+    const doc = await firestore.collection(COLLECTIONS.STATEWIDE_RAINFALL).doc('latest').get()
+
+    if (!doc.exists) {
+      console.log('[Firestore] No statewide rainfall data found')
+      return null
+    }
+
+    const data = doc.data() as StoredStatewideRainfall
+
+    const age = Date.now() - data.fetchedAt
+    if (age > maxAgeMs) {
+      console.log(`[Firestore] Statewide rainfall data too stale: ${Math.round(age / 1000)}s old`)
+      return null
+    }
+
+    console.log(`[Firestore] Retrieved statewide rainfall, age: ${Math.round(age / 1000)}s`)
+    return data
+  } catch (error) {
+    console.error('[Firestore] Error getting statewide rainfall:', error)
+    return null
+  }
+}
+
+// ============================================
+// Road Closures Storage
+// ============================================
+
+export interface StoredRoadClosures {
+  events: RoadEvent[]
+  timestamp: string
+  fetchedAt: number
+  source: string
+  sourceUrl: string
+}
+
+/**
+ * Store road closures data to Firestore
+ */
+export async function storeRoadClosures(
+  events: RoadEvent[],
+  source: string = 'qldtraffic',
+  sourceUrl: string = 'https://qldtraffic.qld.gov.au/'
+): Promise<boolean> {
+  const firestore = getDb()
+  if (!firestore) return false
+
+  try {
+    const now = Date.now()
+    const stored: StoredRoadClosures = {
+      events,
+      timestamp: new Date().toISOString(),
+      fetchedAt: now,
+      source,
+      sourceUrl,
+    }
+
+    await firestore.collection(COLLECTIONS.ROAD_CLOSURES).doc('latest').set(stored)
+    console.log(`[Firestore] Stored ${events.length} road closures`)
+    return true
+  } catch (error) {
+    console.error('[Firestore] Error storing road closures:', error)
+    return false
+  }
+}
+
+/**
+ * Get road closures data from Firestore
+ */
+export async function getRoadClosures(maxAgeMs: number = 10 * 60 * 1000): Promise<StoredRoadClosures | null> {
+  const firestore = getDb()
+  if (!firestore) return null
+
+  try {
+    const doc = await firestore.collection(COLLECTIONS.ROAD_CLOSURES).doc('latest').get()
+
+    if (!doc.exists) {
+      console.log('[Firestore] No road closures data found')
+      return null
+    }
+
+    const data = doc.data() as StoredRoadClosures
+
+    const age = Date.now() - data.fetchedAt
+    if (age > maxAgeMs) {
+      console.log(`[Firestore] Road closures data too stale: ${Math.round(age / 1000)}s old`)
+      return null
+    }
+
+    console.log(`[Firestore] Retrieved road closures, age: ${Math.round(age / 1000)}s, ${data.events.length} events`)
+    return data
+  } catch (error) {
+    console.error('[Firestore] Error getting road closures:', error)
+    return null
+  }
+}
+
+export { getDb }

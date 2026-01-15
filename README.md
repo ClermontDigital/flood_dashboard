@@ -23,29 +23,41 @@ GAUGE is designed with rural Queensland communities in mind, where reliable inte
 ### Data Flow
 
 ```
-                                    Cloud Scheduler (every 2 min)
+                                    Cloud Scheduler (every 1-2 min)
                                              │
                                              ▼
-Queensland WMIP API ──┐              ┌──────────────┐
-                      ├──> Cron API ─>│  Firestore   │
-BOM Water Data API ───┘              └──────────────┘
-                                             │
-                                             ▼
+Queensland WMIP API ──┐                                    ┌──────────────┐
+BOM Water Data API ───┤                                    │              │
+Open-Meteo API ───────┼──> Cron API (/api/cron/fetch) ───>│  Firestore   │
+QLDTraffic API ───────┘                                    │              │
+                                                           └──────────────┘
+                                                                  │
+                       Cached Data (10 min TTL)                   │
+                       ├── Water levels & discharge               │
+                       ├── Dam storage levels                     │
+                       ├── Statewide rainfall                     │
+                       └── Road closures                          ▼
                               Next.js API Routes ──> SWR Cache ──> React UI
                                       │
                                       ├── Rate limiting
                                       ├── Input sanitization
-                                      └── Direct fetch fallback
+                                      └── Direct fetch fallback (if cache miss)
 ```
 
 ### Cloud Architecture
 
 GAUGE uses **Firestore + Cloud Scheduler** for reliable data caching across Cloud Run instances:
 
-- **Cloud Scheduler** triggers the `/api/cron/fetch-water-data` endpoint every 2 minutes
-- **Firestore** stores the latest readings, shared across all Cloud Run instances
-- **API routes** read from Firestore (fast) with fallback to direct WMIP/BOM fetch
+- **Cloud Scheduler** triggers the `/api/cron/fetch-water-data` endpoint every 1-2 minutes
+- **Firestore** stores all data with 10-minute TTL, shared across all Cloud Run instances:
+  - Water levels and discharge readings
+  - Dam storage levels
+  - Statewide rainfall aggregates (from Open-Meteo)
+  - Road closures (from QLDTraffic)
+- **API routes** read from Firestore cache with fallback to direct API fetch on cache miss
+- **Partial failure tracking** ensures water level data is stored even if auxiliary sources fail
 - **Application Default Credentials (ADC)** handle authentication automatically on Cloud Run
+- **Lazy Firestore initialization** allows local development without GCP credentials
 
 ### Key Components
 
@@ -116,6 +128,7 @@ See `.env.example` for all available configuration options:
 | `RATE_LIMIT_MAX_REQUESTS` | API rate limit per minute | `60` |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID for Firestore | Auto-detected on Cloud Run |
 | `CRON_SECRET` | Secret for Cloud Scheduler auth | Optional |
+| `QLDTRAFFIC_API_KEY` | QLDTraffic API key for road closures | Required for road data |
 
 ## Data Sources
 
@@ -143,6 +156,24 @@ Queensland Government's water monitoring system, used as a fallback data source 
 **URL**: [www.bom.gov.au/qld/flood/](https://www.bom.gov.au/qld/flood/)
 
 Official flood warnings and alerts for Queensland catchments.
+
+### QLDTraffic API
+**URL**: [qldtraffic.qld.gov.au](https://qldtraffic.qld.gov.au/)
+
+Queensland Government's traffic and road conditions API provides:
+- Real-time road closures due to flooding
+- Traffic hazards and incidents
+- Road condition alerts
+
+Requires an API key (set via `QLDTRAFFIC_API_KEY` environment variable).
+
+### Open-Meteo API
+**URL**: [open-meteo.com](https://open-meteo.com/)
+
+Free weather API used for statewide rainfall aggregation:
+- Rainfall data from 14 sample locations across Queensland
+- Batched requests (5 at a time with 100ms delay) to avoid rate limiting
+- Aggregated into min/max/average for statewide overview
 
 ## Monitored Infrastructure
 
@@ -210,19 +241,28 @@ GAUGE is deployed on Google Cloud Run with Firestore for data caching.
 docker build -t gcr.io/YOUR_PROJECT/gauge-dashboard .
 docker push gcr.io/YOUR_PROJECT/gauge-dashboard
 
-# Deploy to Cloud Run
+# Deploy to Cloud Run with environment variables
 gcloud run deploy gauge-dashboard \
   --image gcr.io/YOUR_PROJECT/gauge-dashboard \
   --region asia-southeast1 \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --set-env-vars QLDTRAFFIC_API_KEY=your_api_key
 
-# Create Cloud Scheduler job for data fetching
+# Create Cloud Scheduler job for data fetching (runs every 2 minutes)
 gcloud scheduler jobs create http gauge-fetch-water-data \
   --location=asia-southeast1 \
   --schedule="*/2 * * * *" \
   --uri="https://YOUR_SERVICE_URL/api/cron/fetch-water-data" \
   --http-method=POST \
   --oidc-service-account-email=YOUR_SERVICE_ACCOUNT
+```
+
+**Update environment variables on existing deployment:**
+
+```bash
+gcloud run services update gauge-dashboard \
+  --update-env-vars QLDTRAFFIC_API_KEY=your_api_key \
+  --region asia-southeast1
 ```
 
 ### Docker (Local)
@@ -247,8 +287,11 @@ docker-compose up -d
 | `/api/warnings` | GET | Active BOM flood warnings |
 | `/api/predictions` | GET | Calculated flood forecasts |
 | `/api/weather` | GET | Current weather conditions |
-| `/api/rainfall` | GET | Regional rainfall data and forecasts |
-| `/api/cron/fetch-water-data` | POST | Cloud Scheduler endpoint (internal) |
+| `/api/rainfall` | GET | Statewide rainfall (cached) or location-specific |
+| `/api/road-closures` | GET | Flood-related road closures from QLDTraffic |
+| `/api/cron/fetch-water-data` | POST/GET | Cloud Scheduler endpoint (populates cache) |
+
+All API endpoints first check Firestore cache (10 min TTL) and fall back to direct API fetch on cache miss.
 
 ## Important Disclaimer
 

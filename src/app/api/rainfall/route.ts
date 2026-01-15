@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { fetchRainfall, fetchStateRainfall, type RainfallSummary, type StateRainfallSummary } from '@/lib/data-sources'
 import { GAUGE_STATIONS } from '@/lib/constants'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
+import { getStatewideRainfall } from '@/lib/firestore'
 
 export const runtime = 'nodejs'
 export const revalidate = 300 // Cache for 5 minutes
@@ -120,7 +121,21 @@ export async function GET(request: Request) {
       })
     }
 
-    // Default: Get statewide aggregated rainfall from multiple QLD locations
+    // Default: Get statewide aggregated rainfall
+    // First try Firestore cache (populated by cron job)
+    const cachedRainfall = await getStatewideRainfall(10 * 60 * 1000) // 10 min max age
+
+    if (cachedRainfall) {
+      const response: RainfallAPIResponse = {
+        statewide: cachedRainfall.data,
+        timestamp: cachedRainfall.timestamp,
+        isStatewide: true,
+      }
+      return NextResponse.json(response)
+    }
+
+    // Fallback: fetch directly from Open-Meteo (may hit rate limits)
+    console.log('[Rainfall API] Cache miss, fetching from Open-Meteo directly')
     const statewideResult = await fetchStateRainfall()
 
     if (!statewideResult.success) {

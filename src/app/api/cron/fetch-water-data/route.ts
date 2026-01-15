@@ -9,20 +9,33 @@
  */
 
 import { NextResponse, NextRequest } from 'next/server'
-import type { WaterLevel, DischargeReading, RainfallReading, DamStorageReading, FloodThresholds } from '@/lib/types'
+import type { WaterLevel, DischargeReading, RainfallReading, DamStorageReading, FloodThresholds, RoadEvent } from '@/lib/types'
 import { GAUGE_STATIONS } from '@/lib/constants'
+import { env } from '@/lib/env'
 import { calculateStatus } from '@/lib/utils'
 import {
   fetchWMIPMultipleGauges,
   fetchBOMMultipleGauges,
   fetchBOMExtendedData,
   fetchAllBOMDamStorage,
+  fetchStateRainfall,
 } from '@/lib/data-sources'
 import {
   storeWaterLevelData,
   recordFetchError,
   recordFetchSuccess,
+  recordPartialFailures,
+  storeStatewideRainfall,
+  storeRoadClosures,
 } from '@/lib/firestore'
+
+// Queensland state bounding box
+const QLD_BOUNDS = {
+  north: -16.0,
+  south: -29.0,
+  east: 154.0,
+  west: 138.0,
+}
 
 // Known flood thresholds for gauges
 const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
@@ -89,6 +102,96 @@ function hasElevatedLevels(waterLevels: Map<string, WaterLevel>): boolean {
     }
   }
   return false
+}
+
+/**
+ * Fetch road closures from QLDTraffic API
+ */
+async function fetchRoadClosuresData(): Promise<RoadEvent[]> {
+  try {
+    // Skip if API key is not configured
+    if (!env.qldTrafficApiKey) {
+      console.warn('[Cron] QLDTraffic API key not configured, skipping road closures fetch')
+      return []
+    }
+
+    const response = await fetch(`${env.qldTrafficApiUrl}?apikey=${env.qldTrafficApiKey}`, {
+      headers: { 'Accept': 'application/json' },
+    })
+
+    if (!response.ok) {
+      console.error(`[Cron] QLDTraffic API error: ${response.status}`)
+      return []
+    }
+
+    const data = await response.json()
+    const features = data.features || data.events || data || []
+    const events: RoadEvent[] = []
+
+    for (const feature of features) {
+      const props = feature.properties || feature
+      const geometry = feature.geometry || props.geometry
+
+      // Get coordinates
+      let coords: { lat: number; lng: number } | null = null
+      if (geometry?.coordinates) {
+        if (geometry.type === 'Point') {
+          coords = { lat: geometry.coordinates[1], lng: geometry.coordinates[0] }
+        } else if (geometry.type === 'LineString' && geometry.coordinates.length > 0) {
+          const mid = Math.floor(geometry.coordinates.length / 2)
+          coords = { lat: geometry.coordinates[mid][1], lng: geometry.coordinates[mid][0] }
+        } else if (geometry.type === 'MultiLineString' && geometry.coordinates[0]?.length > 0) {
+          coords = { lat: geometry.coordinates[0][0][1], lng: geometry.coordinates[0][0][0] }
+        }
+      }
+
+      if (!coords) continue
+
+      // Filter to Queensland region
+      if (coords.lat < QLD_BOUNDS.south || coords.lat > QLD_BOUNDS.north ||
+          coords.lng < QLD_BOUNDS.west || coords.lng > QLD_BOUNDS.east) continue
+
+      // Map event type
+      const type = props.event_type?.toLowerCase() || ''
+      const subtype = props.event_subtype?.toLowerCase() || ''
+      let eventType: RoadEvent['type'] = 'hazard'
+      if (type.includes('flood') || subtype.includes('flood')) eventType = 'flooding'
+      else if (type.includes('closure') || subtype.includes('closure')) eventType = 'road_closure'
+
+      // Only include flooding, road closures, and hazards
+      if (!['flooding', 'road_closure', 'hazard'].includes(eventType)) continue
+
+      // Map severity
+      const impact = props.impact?.impact_type?.toLowerCase() || ''
+      let severity: RoadEvent['severity'] = 'low'
+      if (impact.includes('major') || type.includes('flood')) severity = 'extreme'
+      else if (impact.includes('moderate')) severity = 'high'
+      else if (impact.includes('minor')) severity = 'medium'
+
+      events.push({
+        id: props.event_id || `evt-${Date.now()}-${Math.random()}`,
+        type: eventType,
+        title: props.road_summary?.road_name || props.description?.substring(0, 50) || 'Road Event',
+        description: props.description || props.advice || props.information || 'No description available',
+        road: props.road_summary?.road_name || 'Unknown road',
+        suburb: props.road_summary?.locality,
+        direction: props.road_summary?.direction || props.impact?.direction,
+        lat: coords.lat,
+        lng: coords.lng,
+        startTime: props.duration?.start,
+        endTime: props.duration?.end,
+        severity,
+        source: 'qldtraffic',
+        sourceUrl: env.qldTrafficWebsiteUrl,
+        lastUpdated: new Date().toISOString(),
+      })
+    }
+
+    return events
+  } catch (error) {
+    console.error('[Cron] Error fetching road closures:', error)
+    return []
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -199,7 +302,50 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw new Error('Failed to store data in Firestore')
     }
 
-    await recordFetchSuccess()
+    // Track partial failures for auxiliary data sources
+    const partialFailures: { rainfall?: string; roadClosures?: string } = {}
+
+    // Fetch and store statewide rainfall (from Open-Meteo)
+    console.log('[Cron] Fetching statewide rainfall...')
+    let rainfallStored = false
+    try {
+      const rainfallResult = await fetchStateRainfall()
+      if (rainfallResult.success && rainfallResult.data) {
+        rainfallStored = await storeStatewideRainfall(rainfallResult.data)
+        console.log(`[Cron] Statewide rainfall: ${rainfallResult.data.sampleCount} locations, stored: ${rainfallStored}`)
+      } else {
+        partialFailures.rainfall = rainfallResult.error || 'Unknown error'
+        console.warn('[Cron] Failed to fetch statewide rainfall:', rainfallResult.error)
+      }
+    } catch (error) {
+      partialFailures.rainfall = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[Cron] Error fetching statewide rainfall:', error)
+    }
+
+    // Fetch and store road closures (from QLDTraffic)
+    console.log('[Cron] Fetching road closures...')
+    let roadClosuresStored = false
+    try {
+      const roadEvents = await fetchRoadClosuresData()
+      if (roadEvents.length >= 0) { // Even empty array is valid (no current closures)
+        roadClosuresStored = await storeRoadClosures(roadEvents)
+        console.log(`[Cron] Road closures: ${roadEvents.length} events, stored: ${roadClosuresStored}`)
+      }
+    } catch (error) {
+      partialFailures.roadClosures = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[Cron] Error fetching road closures:', error)
+    }
+
+    // Record partial failures if any occurred
+    if (partialFailures.rainfall || partialFailures.roadClosures) {
+      await recordPartialFailures(partialFailures)
+    }
+
+    // Record success and clear any partial errors that succeeded this time
+    await recordFetchSuccess({
+      rainfall: rainfallStored,
+      roadClosures: roadClosuresStored,
+    })
 
     const duration = Date.now() - startTime
     console.log(`[Cron] Fetch complete in ${duration}ms: ${waterLevelMap.size} gauges, elevated: ${isElevated}`)
@@ -209,6 +355,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       gaugesUpdated: waterLevelMap.size,
       sources,
       isElevated,
+      rainfallStored,
+      roadClosuresStored,
       durationMs: duration,
     })
 

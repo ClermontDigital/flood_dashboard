@@ -302,13 +302,25 @@ export interface StateRainfallResponse {
  */
 export async function fetchStateRainfall(): Promise<StateRainfallResponse> {
   try {
-    // Fetch rainfall for all sample locations in parallel
-    const results = await Promise.all(
-      QLD_SAMPLE_LOCATIONS.map(async (loc) => {
-        const result = await fetchRainfall(loc.lat, loc.lng, loc.name)
-        return { location: loc, result }
-      })
-    )
+    // Fetch rainfall in batches to avoid rate limiting
+    const batchSize = 5  // Smaller batch size to be gentle on the API
+    const results: Array<{ location: typeof QLD_SAMPLE_LOCATIONS[0]; result: RainfallResponse }> = []
+
+    for (let i = 0; i < QLD_SAMPLE_LOCATIONS.length; i += batchSize) {
+      const batch = QLD_SAMPLE_LOCATIONS.slice(i, i + batchSize)
+      const batchResults = await Promise.all(
+        batch.map(async (loc) => {
+          const result = await fetchRainfall(loc.lat, loc.lng, loc.name)
+          return { location: loc, result }
+        })
+      )
+      results.push(...batchResults)
+
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < QLD_SAMPLE_LOCATIONS.length) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
 
     // Filter successful results
     const successfulResults = results.filter(r => r.result.success && r.result.data)

@@ -484,13 +484,40 @@ export default function DashboardPage() {
                       <div className="text-sm text-gray-500 mt-2">
                         {STATUS_LABELS[selectedGaugeBasic.reading.status].message}
                       </div>
+                      <div className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-200">
+                        {new Date(selectedGaugeBasic.reading.timestamp).toLocaleString('en-AU', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                          timeZone: 'Australia/Brisbane'
+                        })} AEST • {selectedGaugeBasic.reading.source.toUpperCase()}
+                      </div>
                     </div>
 
-                    {/* Discharge and Rainfall Data */}
+                    {/* Discharge, Rainfall, and Rate of Change Data */}
                     {(() => {
                       // Get location-specific rainfall for selected gauge
                       const locationRainfall = rainfallData && !('statewide' in rainfallData) && rainfallData.success ? rainfallData.data : null
-                      if (!selectedGaugeBasic.discharge && !locationRainfall) return null
+                      const changeRate = selectedGaugeBasic.reading?.changeRate ?? 0
+                      const hasChangeRate = Math.abs(changeRate) >= 0.01 // Show if rate is at least 1cm/hr
+
+                      if (!selectedGaugeBasic.discharge && !locationRainfall && !hasChangeRate) return null
+
+                      // Determine rate badge color based on rate magnitude and direction
+                      const getRateColor = (rate: number) => {
+                        if (rate >= 0.2) return { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200' }
+                        if (rate >= 0.1) return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200' }
+                        if (rate > 0.01) return { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' }
+                        if (rate <= -0.1) return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-200' }
+                        if (rate < -0.01) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' }
+                        return { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' }
+                      }
+
+                      const rateColors = getRateColor(changeRate)
+
                       return (
                         <div className="grid grid-cols-2 gap-3 mb-4">
                           {/* Discharge/Flow Rate */}
@@ -520,21 +547,47 @@ export default function DashboardPage() {
                               )}
                             </div>
                           )}
+                          {/* Rate of Change Badge with WMIP source link */}
+                          {hasChangeRate && (
+                            <a
+                              href={`https://water-monitoring.information.qld.gov.au/host.htm?ppbm=${selectedGaugeId}&rs&1&rslf_org`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn("p-3 rounded-lg border block hover:opacity-90 transition-opacity", rateColors.bg, rateColors.border)}
+                            >
+                              <div className={cn("text-xs font-medium uppercase flex items-center justify-between", rateColors.text)}>
+                                <span>{changeRate > 0 ? 'Rising' : 'Falling'} Rate</span>
+                                <svg className="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                              </div>
+                              <div className={cn("text-xl font-bold mt-1 flex items-center gap-1", rateColors.text)}>
+                                <span className="text-lg">
+                                  {changeRate > 0 ? '↑' : '↓'}
+                                </span>
+                                {Math.abs(changeRate).toFixed(2)}
+                                <span className="text-sm font-normal">m/hr</span>
+                              </div>
+                              <div className={cn("text-xs mt-1 flex items-center justify-between", rateColors.text)}>
+                                <span>
+                                  {Math.abs(changeRate) >= 0.2 ? 'Rapid change' :
+                                   Math.abs(changeRate) >= 0.1 ? 'Moderate change' :
+                                   'Slow change'}
+                                </span>
+                                <span className="opacity-60">WMIP</span>
+                              </div>
+                            </a>
+                          )}
                         </div>
                       )
                     })()}
 
-                    {/* Data Source Info */}
-                    <div className={cn(
-                      "text-sm p-2 rounded mb-4",
-                      isDataStale(selectedGaugeBasic.reading.timestamp) ? "bg-yellow-50 text-yellow-800" : "text-gray-500"
-                    )}>
-                      {isDataStale(selectedGaugeBasic.reading.timestamp) && (
-                        <span className="font-medium">Data may be outdated. </span>
-                      )}
-                      Source: {selectedGaugeBasic.reading.source.toUpperCase()} |
-                      Updated {formatTimeSince(selectedGaugeBasic.reading.timestamp)}
-                    </div>
+                    {/* Stale Data Warning */}
+                    {isDataStale(selectedGaugeBasic.reading.timestamp) && (
+                      <div className="text-sm p-2 rounded mb-4 bg-yellow-50 text-yellow-800">
+                        <span className="font-medium">⚠ Data may be outdated.</span> Last updated {formatTimeSince(selectedGaugeBasic.reading.timestamp)}
+                      </div>
+                    )}
 
                     {/* Historical Chart */}
                     <div className="mt-4">

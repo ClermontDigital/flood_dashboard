@@ -7,7 +7,7 @@ import { QLD_CENTER, CLERMONT_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/
 import Image from 'next/image'
 import Link from 'next/link'
 import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading, RoadEventsResponse } from '@/lib/types'
-import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance } from '@/lib/utils'
+import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Loading placeholder component
 function LoadingPlaceholder({ height, label }: { height: string; label: string }) {
@@ -68,7 +68,7 @@ interface LocationRainfallAPIResponse {
 }
 
 export default function DashboardPage() {
-  // Default to statewide view on first load
+  // Start with null to avoid hydration mismatch - restore from localStorage in useEffect
   const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>(QLD_CENTER)
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
@@ -79,6 +79,39 @@ export default function DashboardPage() {
 
   // Ref for gauge details section to scroll to
   const gaugeDetailsRef = useRef<HTMLDivElement>(null)
+  // Ref to track if initial map centering has been done
+  const hasInitialCentered = useRef(false)
+  // Ref to track if component has mounted (for localStorage)
+  const hasMounted = useRef(false)
+  // Ref to track the previous gauge ID for detecting user-initiated changes
+  const prevSelectedGaugeId = useRef<string | null>(null)
+
+  // Restore selected gauge from localStorage on mount (client-side only)
+  useEffect(() => {
+    const stored = getLocalStorage<string | null>('lastSelectedGauge', null)
+    if (stored) {
+      setSelectedGaugeId(stored)
+      prevSelectedGaugeId.current = stored
+    }
+    hasMounted.current = true
+  }, [])
+
+  // Persist selected gauge to localStorage for auto-restore on refresh
+  useEffect(() => {
+    // Skip until component has mounted and initial restore is complete
+    if (!hasMounted.current) return
+
+    // Only persist changes after the initial restoration
+    if (selectedGaugeId) {
+      setLocalStorage('lastSelectedGauge', selectedGaugeId)
+    } else if (prevSelectedGaugeId.current !== null) {
+      // Only clear localStorage when user explicitly deselects (was previously non-null)
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('lastSelectedGauge')
+      }
+    }
+    prevSelectedGaugeId.current = selectedGaugeId
+  }, [selectedGaugeId])
 
   // Fetch water levels with SWR (auto-refresh every 5 minutes)
   const { data: waterLevels, error: levelsError, isLoading: levelsLoading } = useSWR<WaterLevelsResponse>(
@@ -86,6 +119,22 @@ export default function DashboardPage() {
     fetcher,
     { refreshInterval: REFRESH_INTERVAL }
   )
+
+  // Center map on restored gauge when data first loads
+  useEffect(() => {
+    if (hasInitialCentered.current) return
+    if (!waterLevels?.gauges || !selectedGaugeId) return
+
+    const gauge = waterLevels.gauges.find(g => g.station.id === selectedGaugeId)
+    if (gauge) {
+      setMapCenter([gauge.station.lat, gauge.station.lng])
+      hasInitialCentered.current = true
+    } else {
+      // Gauge no longer exists - clear the invalid selection
+      setSelectedGaugeId(null)
+      hasInitialCentered.current = true
+    }
+  }, [waterLevels?.gauges, selectedGaugeId])
 
   // Fetch gauge detail with history when a gauge is selected
   const { data: gaugeDetail, isLoading: detailLoading } = useSWR<GaugeDetailResponse>(

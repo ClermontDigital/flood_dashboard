@@ -266,7 +266,9 @@ async function fetchWaterLevelData(
 }
 
 /**
- * Calculates trend from trace data
+ * Calculates trend and rate of change from trace data
+ * Uses same approach as BOM: (level_diff / time_diff_hours) to get m/hr
+ * @see src/lib/data-sources/bom.ts calculateTrend() for reference implementation
  */
 function calculateTrendFromTrace(trace: WMIPTracePoint[]): { trend: Trend; changeRate: number } {
   // Filter for valid points (quality code 255 = no data)
@@ -276,13 +278,37 @@ function calculateTrendFromTrace(trace: WMIPTracePoint[]): { trend: Trend; chang
     return { trend: 'stable', changeRate: 0 }
   }
 
-  const current = parseFloat(validPoints[validPoints.length - 1].v)
-  const previous = parseFloat(validPoints[Math.max(0, validPoints.length - 4)].v)
+  // Get latest and a previous point (~1 hour ago, or closest available)
+  const latestPoint = validPoints[validPoints.length - 1]
+  // Try to get a point from ~4 readings ago (typically ~1 hour with 15-min intervals)
+  const previousIndex = Math.max(0, validPoints.length - 4)
+  const previousPoint = validPoints[previousIndex]
 
-  const changeRate = current - previous
-  const trend = calculateTrend(current, previous, 1)
+  const latestLevel = parseFloat(latestPoint.v)
+  const previousLevel = parseFloat(previousPoint.v)
 
-  return { trend, changeRate }
+  // Parse timestamps and calculate actual time difference
+  const latestTime = new Date(parseWMIPTimestamp(latestPoint.t)).getTime()
+  const previousTime = new Date(parseWMIPTimestamp(previousPoint.t)).getTime()
+  const timeDiffHours = (latestTime - previousTime) / (1000 * 60 * 60)
+
+  // Avoid division by zero or very small time differences
+  if (timeDiffHours <= 0.1) {
+    return { trend: 'stable', changeRate: 0 }
+  }
+
+  const levelDiff = latestLevel - previousLevel
+  const changeRate = levelDiff / timeDiffHours
+
+  // Consider stable if change is less than 0.01m/hr (same threshold as BOM)
+  if (Math.abs(changeRate) < 0.01) {
+    return { trend: 'stable', changeRate: 0 }
+  }
+
+  return {
+    trend: changeRate > 0 ? 'rising' : 'falling',
+    changeRate: Math.round(changeRate * 100) / 100,  // Round to 2 decimal places
+  }
 }
 
 /**

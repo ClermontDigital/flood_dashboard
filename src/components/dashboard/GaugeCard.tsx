@@ -121,6 +121,29 @@ export function GaugeCard({ gaugeData, onClick, selected, compact = false }: Gau
             )}
           </div>
         </div>
+        {/* Rate of change indicator with WMIP source link */}
+        {hasData && Math.abs(reading.changeRate) >= 0.01 && (
+          <a
+            href={`https://water-monitoring.information.qld.gov.au/host.htm?ppbm=${station.id}&rs&1&rslf_org`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              'mt-1.5 text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1 hover:opacity-80 transition-opacity',
+              reading.changeRate > 0.1 ? 'bg-red-100 text-red-700' :
+              reading.changeRate > 0 ? 'bg-amber-100 text-amber-700' :
+              reading.changeRate < -0.1 ? 'bg-green-100 text-green-700' :
+              'bg-emerald-50 text-emerald-700'
+            )}
+            title="Source: Queensland WMIP - Click to view"
+          >
+            <span>{reading.changeRate > 0 ? '↑' : '↓'}</span>
+            <span>{Math.abs(reading.changeRate).toFixed(2)} m/hr</span>
+            <svg className="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+        )}
         {staleData && (
           <p className="text-xs text-amber-600 mt-1">Data may be outdated</p>
         )}

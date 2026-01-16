@@ -161,15 +161,6 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
       {/* Basin Summary */}
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-900">Queensland Rivers Overview</h2>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <span>{basinStats.active}/{basinStats.total} gauges active</span>
-          {basinStats.rising > 0 && (
-            <span className="text-orange-600">↑ {basinStats.rising} rising</span>
-          )}
-          {basinStats.falling > 0 && (
-            <span className="text-green-600">↓ {basinStats.falling} falling</span>
-          )}
-        </div>
       </div>
 
       {/* Status Summary Pills */}
@@ -189,55 +180,58 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
             {basinStats.statusCounts.watch} Watch
           </span>
         )}
-        {basinStats.statusCounts.safe > 0 && (
-          <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-            {basinStats.statusCounts.safe} Safe
-          </span>
-        )}
       </div>
 
-      {/* Horizontal scrolling gauge cards by river system - only show gauges with readings */}
-      <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-        {RIVER_ORDER.map(river => {
-          const riverGauges = groupedGauges.get(river) || []
-          // Only show gauges that have active readings
-          const activeGauges = riverGauges.filter(g => g.reading)
-          if (activeGauges.length === 0) return null
+      {/* Horizontal scrolling gauge cards by river system - only show watch, warning, danger */}
+      {(basinStats.statusCounts.watch + basinStats.statusCounts.warning + basinStats.statusCounts.danger) > 0 ? (
+        <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
+          {RIVER_ORDER.map(river => {
+            const riverGauges = groupedGauges.get(river) || []
+            // Only show gauges with elevated status (watch, warning, danger)
+            const alertGauges = riverGauges.filter(g =>
+              g.reading && ['watch', 'warning', 'danger'].includes(g.reading.status)
+            )
+            if (alertGauges.length === 0) return null
 
-          return (
-            <div key={river} className="flex-shrink-0">
-              <div className="text-xs font-medium text-gray-500 mb-1.5">{RIVER_LABELS[river]}</div>
-              <div className="flex gap-1.5">
-                {activeGauges.map(gauge => (
-                  <button
-                    key={gauge.station.id}
-                    onClick={() => onSelectGauge(gauge.station.id)}
-                    className={cn(
-                      'flex flex-col items-center p-2 rounded-lg transition-all min-w-[70px]',
-                      'hover:ring-2 hover:ring-blue-300',
-                      selectedGaugeId === gauge.station.id
-                        ? 'ring-2 ring-blue-500 bg-blue-50'
-                        : 'bg-gray-50'
-                    )}
-                    title={`${gauge.station.name} - ${gauge.station.stream}`}
-                  >
-                    <div className="text-sm font-bold text-gray-900">
-                      {gauge.reading!.level.toFixed(1)}m
-                    </div>
-                    <StatusBadge status={gauge.reading!.status} size="xs" />
-                    <div
-                      className="text-[10px] text-gray-500 mt-0.5"
-                      aria-label={`Trend: ${gauge.reading!.trend}`}
+            return (
+              <div key={river} className="flex-shrink-0">
+                <div className="text-xs font-medium text-gray-500 mb-1.5">{RIVER_LABELS[river]}</div>
+                <div className="flex gap-1.5">
+                  {alertGauges.map(gauge => (
+                    <button
+                      key={gauge.station.id}
+                      onClick={() => onSelectGauge(gauge.station.id)}
+                      className={cn(
+                        'flex flex-col items-center p-2 rounded-lg transition-all min-w-[70px]',
+                        'hover:ring-2 hover:ring-blue-300',
+                        selectedGaugeId === gauge.station.id
+                          ? 'ring-2 ring-blue-500 bg-blue-50'
+                          : 'bg-gray-50'
+                      )}
+                      title={`${gauge.station.name} - ${gauge.station.stream}`}
                     >
-                      {gauge.reading!.trend === 'rising' ? '↑' : gauge.reading!.trend === 'falling' ? '↓' : '—'}
-                    </div>
-                  </button>
-                ))}
+                      <div className="text-sm font-bold text-gray-900">
+                        {gauge.reading!.level.toFixed(1)}m
+                      </div>
+                      <StatusBadge status={gauge.reading!.status} size="xs" />
+                      <div
+                        className="text-[10px] text-gray-500 mt-0.5"
+                        aria-label={`Trend: ${gauge.reading!.trend}`}
+                      >
+                        {gauge.reading!.trend === 'rising' ? '↑' : gauge.reading!.trend === 'falling' ? '↓' : '—'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="py-3 text-center text-sm text-gray-500">
+          All monitored gauges are at safe levels
+        </div>
+      )}
 
       {/* WMIP Source Link */}
       <div className="mt-3 pt-2 border-t border-gray-100 text-xs text-gray-500 flex items-center justify-between">

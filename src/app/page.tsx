@@ -273,7 +273,7 @@ export default function DashboardPage() {
                 width={120}
                 height={40}
                 priority
-                className="h-10 w-auto"
+                style={{ width: 'auto', height: '40px' }}
               />
             </Link>
 

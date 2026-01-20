@@ -336,6 +336,10 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
     getLocalStorage<MapLayerType>('mapLayer', 'satellite')
   )
 
+  // Fix for React 18 Strict Mode - use a unique key per mount cycle
+  // This forces a completely fresh DOM element on each render
+  const [mountKey] = useState(() => Math.random().toString(36).substring(7))
+
   const handleLayerChange = (layer: MapLayerType) => {
     setMapLayer(layer)
     setLocalStorage('mapLayer', layer)
@@ -379,6 +383,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
   return (
     <div className="relative w-full h-full">
       <MapContainer
+        key={`flood-map-${mountKey}`}
         center={mapCenter}
         zoom={DEFAULT_ZOOM}
         className="w-full h-full rounded-lg"

@@ -107,6 +107,23 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
     hasMounted.current = true
   }, [initialGaugeId])
 
+  // Scroll to anchor hash on mount (e.g., /gauge/130207A#history)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const hash = window.location.hash
+    if (hash) {
+      // Small delay to ensure DOM elements are rendered
+      const timeoutId = setTimeout(() => {
+        const element = document.querySelector(hash)
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 500)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [])
+
   // Persist selected gauge to localStorage and URL for sharing
   useEffect(() => {
     // Skip until component has mounted
@@ -362,7 +379,7 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Map Section */}
-          <div className="lg:col-span-2">
+          <div id="map" className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-sm overflow-hidden">
               <div className="h-[400px] md:h-[500px] lg:h-[600px]">
                 <FloodMap
@@ -525,17 +542,58 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
 
             {/* Selected Gauge Details */}
             {selectedGaugeId && selectedGaugeBasic && (
-              <div ref={gaugeDetailsRef} className="mt-4 bg-white rounded-lg shadow-sm p-4">
+              <div id="details" ref={gaugeDetailsRef} className="mt-4 bg-white rounded-lg shadow-sm p-4">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900">
+                    <h2 id="gauge-title" className="text-xl font-semibold text-gray-900">
                       {selectedGaugeBasic.station.name}
                     </h2>
                     <p className="text-gray-600 text-sm">{selectedGaugeBasic.station.stream}</p>
                   </div>
-                  {selectedGaugeBasic.reading && (
-                    <StatusBadge status={selectedGaugeBasic.reading.status} size="lg" />
-                  )}
+                  <div className="flex items-center gap-2">
+                    {selectedGaugeBasic.reading && (
+                      <StatusBadge status={selectedGaugeBasic.reading.status} size="lg" />
+                    )}
+                    {/* Share & Bookmark buttons */}
+                    <div className="flex items-center gap-1 ml-2">
+                      <button
+                        onClick={() => {
+                          const url = `https://gauge.clermont.digital/gauge/${selectedGaugeId}`
+                          if (navigator.share) {
+                            navigator.share({
+                              title: `${selectedGaugeBasic.station.name} - Gauge`,
+                              text: `Water level at ${selectedGaugeBasic.station.name}: ${selectedGaugeBasic.reading?.level?.toFixed(2) ?? 'N/A'}m`,
+                              url,
+                            }).catch(() => {})
+                          } else {
+                            navigator.clipboard.writeText(url)
+                            alert('Link copied to clipboard!')
+                          }
+                        }}
+                        className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Share this gauge"
+                        aria-label="Share this gauge"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const url = `https://gauge.clermont.digital/gauge/${selectedGaugeId}`
+                          navigator.clipboard.writeText(url)
+                          alert(`Press Ctrl+D (Cmd+D on Mac) to bookmark this page.\n\nLink copied to clipboard!`)
+                        }}
+                        className="p-2 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                        title="Bookmark this gauge"
+                        aria-label="Bookmark this gauge"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {selectedGaugeBasic.reading ? (
@@ -658,7 +716,7 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                     )}
 
                     {/* Historical Chart */}
-                    <div className="mt-4">
+                    <div id="history" className="mt-4">
                       {detailLoading ? (
                         <div className="h-64 bg-gray-100 animate-pulse rounded-lg flex items-center justify-center">
                           <span className="text-gray-500">Loading history...</span>

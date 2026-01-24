@@ -303,7 +303,7 @@ export function WaterLevelChart({
 
       {/* 7-Day Uptime Bar Chart */}
       {uptimeStats && uptimeStats.length > 0 && (
-        <div className="mt-6 pt-4 border-t border-gray-200">
+        <div id="reliability" className="mt-6 pt-4 border-t border-gray-200">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-900">
               7-Day Reliability

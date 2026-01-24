@@ -1,6 +1,6 @@
 import { Metadata } from 'next'
-import { redirect } from 'next/navigation'
 import { GAUGE_STATIONS } from '@/lib/constants'
+import DashboardClient from './DashboardClient'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -40,15 +40,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-// Generate static params for known gauges (optional - improves build performance)
+// Generate static params for known gauges (improves build performance)
 export async function generateStaticParams() {
   return GAUGE_STATIONS.map((gauge) => ({
     id: gauge.id,
   }))
 }
 
-// Redirect to main page with gauge param
+// Render dashboard with the gauge pre-selected (no redirect - preserves OG tags for crawlers)
 export default async function GaugePage({ params }: Props) {
   const { id } = await params
-  redirect(`/?gauge=${id}`)
+  return <DashboardClient initialGaugeId={id} />
 }

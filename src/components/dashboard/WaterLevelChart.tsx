@@ -4,6 +4,9 @@ import { useMemo } from 'react'
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -13,12 +16,13 @@ import {
   TooltipProps,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import type { HistoryPoint, FloodThresholds } from '@/lib/types'
+import type { HistoryPoint, FloodThresholds, DailyUptimeStat } from '@/lib/types'
 
 interface WaterLevelChartProps {
   history: HistoryPoint[]
   thresholds?: FloodThresholds
   gaugeId: string
+  uptimeStats?: DailyUptimeStat[]
 }
 
 interface ChartDataPoint {
@@ -77,6 +81,7 @@ export function WaterLevelChart({
   history,
   thresholds,
   gaugeId,
+  uptimeStats,
 }: WaterLevelChartProps) {
   // Transform and sort data for the chart
   const chartData = useMemo<ChartDataPoint[]>(() => {
@@ -295,6 +300,109 @@ export function WaterLevelChart({
             : 'No data available'}
         </p>
       </div>
+
+      {/* 7-Day Uptime Bar Chart */}
+      {uptimeStats && uptimeStats.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              7-Day Reliability
+            </h3>
+            <p className="text-sm text-gray-600">
+              Percentage of expected reports received each day
+            </p>
+          </div>
+
+          <div
+            className="w-full h-32"
+            role="img"
+            aria-label={`Uptime chart showing gauge reliability over the past 7 days`}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={uptimeStats} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 11, fill: '#6b7280' }}
+                  tickLine={{ stroke: '#d1d5db' }}
+                  axisLine={{ stroke: '#d1d5db' }}
+                  tickFormatter={(date) => {
+                    const d = new Date(date)
+                    return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric' })
+                  }}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fontSize: 11, fill: '#6b7280' }}
+                  tickLine={{ stroke: '#d1d5db' }}
+                  axisLine={{ stroke: '#d1d5db' }}
+                  tickFormatter={(value) => `${value}%`}
+                  width={40}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const data = payload[0].payload as DailyUptimeStat
+                    return (
+                      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+                        <p className="text-sm font-medium text-gray-900">
+                          {new Date(data.date).toLocaleDateString('en-AU', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'short',
+                          })}
+                        </p>
+                        <p className="text-lg font-bold text-blue-600">
+                          {data.uptime.toFixed(1)}% uptime
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {data.actualReports} / {data.expectedReports} reports
+                        </p>
+                      </div>
+                    )
+                  }}
+                />
+                <ReferenceLine
+                  y={95}
+                  stroke="#22c55e"
+                  strokeDasharray="5 5"
+                  strokeWidth={1}
+                />
+                <Bar dataKey="uptime" radius={[4, 4, 0, 0]}>
+                  {uptimeStats.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={
+                        entry.uptime >= 95
+                          ? '#22c55e'
+                          : entry.uptime >= 80
+                          ? '#eab308'
+                          : '#ef4444'
+                      }
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Uptime Legend */}
+          <div className="mt-3 flex flex-wrap gap-4 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 bg-green-500 rounded" aria-hidden="true" />
+              <span className="text-gray-600">95%+ (Reliable)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 bg-yellow-500 rounded" aria-hidden="true" />
+              <span className="text-gray-600">80-95% (Intermittent)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 bg-red-500 rounded" aria-hidden="true" />
+              <span className="text-gray-600">&lt;80% (Unreliable)</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

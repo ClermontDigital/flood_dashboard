@@ -18,7 +18,7 @@ import {
   fetchAllBOMDamStorage,
 } from '@/lib/data-sources'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
-import { getWaterLevelData } from '@/lib/firestore'
+import { getWaterLevelData, getGaugeUptimeSummary } from '@/lib/firestore'
 
 // Cache configuration - revalidate every 5 minutes
 export const revalidate = 300
@@ -187,6 +187,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
     console.log(`[API] Direct fetch complete: ${waterLevelMap.size} gauges`)
   }
 
+  // Fetch uptime data
+  const uptimeSummary = await getGaugeUptimeSummary()
+
   // Build response
   const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => ({
     station,
@@ -194,6 +197,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
     thresholds: FLOOD_THRESHOLDS[station.id] || null,
     discharge: dischargeMap.get(station.id) || null,
     rainfall: rainfallMap.get(station.id) || null,
+    uptime: uptimeSummary?.[station.id] || undefined,
   }))
 
   const response: WaterLevelsResponse = {

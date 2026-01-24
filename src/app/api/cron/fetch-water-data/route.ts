@@ -27,6 +27,7 @@ import {
   recordPartialFailures,
   storeStatewideRainfall,
   storeRoadClosures,
+  updateGaugeUptimeTracking,
 } from '@/lib/firestore'
 
 // Queensland state bounding box
@@ -301,6 +302,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!stored) {
       throw new Error('Failed to store data in Firestore')
     }
+
+    // Track per-gauge uptime (which gauges reported FRESH data)
+    // Only count as "reporting" if data timestamp is within 2 hours
+    console.log('[Cron] Updating gauge uptime tracking...')
+    const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000 // 2 hours
+    const now = Date.now()
+    const reportingGaugeIds = new Set<string>()
+    for (const [gaugeId, reading] of waterLevelMap) {
+      const readingTime = new Date(reading.timestamp).getTime()
+      if (now - readingTime < STALE_THRESHOLD_MS) {
+        reportingGaugeIds.add(gaugeId)
+      }
+    }
+    console.log(`[Cron] ${reportingGaugeIds.size}/${waterLevelMap.size} gauges have fresh data`)
+    await updateGaugeUptimeTracking(gaugeIds, reportingGaugeIds)
 
     // Track partial failures for auxiliary data sources
     const partialFailures: { rainfall?: string; roadClosures?: string } = {}

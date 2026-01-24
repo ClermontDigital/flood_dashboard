@@ -1551,8 +1551,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -28.4000,
     lng: 144.4500,
     role: 'Mid Paroo',
-    isOffline: true,
-    lastDataYear: 2023,
   },
   {
     id: '424101A',

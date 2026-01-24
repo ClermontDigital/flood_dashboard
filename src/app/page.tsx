@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import useSWR from 'swr'
 import { QLD_CENTER, CLERMONT_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/lib/constants'
 import Image from 'next/image'
 import Link from 'next/link'
-import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading, RoadEventsResponse } from '@/lib/types'
+import type { GaugeData, WaterLevelsResponse, FloodWarning, RiverSystem, HistoryPoint, FloodThresholds, GaugeStation, DamStorageReading, RoadEventsResponse, GaugeUptimeData } from '@/lib/types'
 import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Loading placeholder component
@@ -67,7 +68,9 @@ interface LocationRainfallAPIResponse {
   timestamp: string
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
+  const searchParams = useSearchParams()
+
   // Start with null to avoid hydration mismatch - restore from localStorage in useEffect
   const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number]>(QLD_CENTER)
@@ -86,17 +89,24 @@ export default function DashboardPage() {
   // Ref to track the previous gauge ID for detecting user-initiated changes
   const prevSelectedGaugeId = useRef<string | null>(null)
 
-  // Restore selected gauge from localStorage on mount (client-side only)
+  // Restore selected gauge from URL param or localStorage on mount (client-side only)
   useEffect(() => {
-    const stored = getLocalStorage<string | null>('lastSelectedGauge', null)
-    if (stored) {
-      setSelectedGaugeId(stored)
-      prevSelectedGaugeId.current = stored
+    // URL param takes priority over localStorage
+    const gaugeFromUrl = searchParams.get('gauge')
+    if (gaugeFromUrl) {
+      setSelectedGaugeId(gaugeFromUrl)
+      prevSelectedGaugeId.current = gaugeFromUrl
+    } else {
+      const stored = getLocalStorage<string | null>('lastSelectedGauge', null)
+      if (stored) {
+        setSelectedGaugeId(stored)
+        prevSelectedGaugeId.current = stored
+      }
     }
     hasMounted.current = true
-  }, [])
+  }, [searchParams])
 
-  // Persist selected gauge to localStorage for auto-restore on refresh
+  // Persist selected gauge to localStorage and URL for sharing
   useEffect(() => {
     // Skip until component has mounted and initial restore is complete
     if (!hasMounted.current) return
@@ -104,10 +114,18 @@ export default function DashboardPage() {
     // Only persist changes after the initial restoration
     if (selectedGaugeId) {
       setLocalStorage('lastSelectedGauge', selectedGaugeId)
+      // Update URL for sharing (without triggering navigation)
+      const url = new URL(window.location.href)
+      url.searchParams.set('gauge', selectedGaugeId)
+      window.history.replaceState({}, '', url.toString())
     } else if (prevSelectedGaugeId.current !== null) {
       // Only clear localStorage when user explicitly deselects (was previously non-null)
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem('lastSelectedGauge')
+        // Remove gauge param from URL
+        const url = new URL(window.location.href)
+        url.searchParams.delete('gauge')
+        window.history.replaceState({}, '', url.toString())
       }
     }
     prevSelectedGaugeId.current = selectedGaugeId
@@ -139,6 +157,13 @@ export default function DashboardPage() {
   // Fetch gauge detail with history when a gauge is selected
   const { data: gaugeDetail, isLoading: detailLoading } = useSWR<GaugeDetailResponse>(
     selectedGaugeId ? `/api/water-levels/${selectedGaugeId}` : null,
+    fetcher,
+    { refreshInterval: REFRESH_INTERVAL }
+  )
+
+  // Fetch gauge uptime detail for bar chart when a gauge is selected
+  const { data: uptimeDetail } = useSWR<GaugeUptimeData & { gaugeId: string }>(
+    selectedGaugeId ? `/api/uptime/${selectedGaugeId}` : null,
     fetcher,
     { refreshInterval: REFRESH_INTERVAL }
   )
@@ -649,6 +674,7 @@ export default function DashboardPage() {
                           history={gaugeDetail.history}
                           thresholds={gaugeDetail.thresholds || undefined}
                           gaugeId={selectedGaugeId}
+                          uptimeStats={uptimeDetail?.dailyStats}
                         />
                       ) : (
                         <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center border border-gray-200">
@@ -750,5 +776,21 @@ export default function DashboardPage() {
 
       </div>
     </main>
+  )
+}
+
+// Wrap with Suspense for useSearchParams
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-4" />
+          <span className="text-gray-500">Loading dashboard...</span>
+        </div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   )
 }

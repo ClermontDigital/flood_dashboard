@@ -44,6 +44,7 @@ const COLLECTIONS = {
   METADATA: 'metadata',
   STATEWIDE_RAINFALL: 'statewideRainfall',
   ROAD_CLOSURES: 'roadClosures',
+  GAUGE_UPTIME: 'gaugeUptime',
 } as const
 
 // Document structure for water level readings
@@ -400,6 +401,201 @@ export async function getRoadClosures(maxAgeMs: number = 10 * 60 * 1000): Promis
     return data
   } catch (error) {
     console.error('[Firestore] Error getting road closures:', error)
+    return null
+  }
+}
+
+// ============================================
+// Gauge Uptime Tracking
+// ============================================
+
+import type { DailyUptimeStat, GaugeUptimeData, GaugeUptimeSummary } from './types'
+
+export interface StoredGaugeUptime {
+  gauges: {
+    [gaugeId: string]: {
+      rollingUptime7d: number
+      lastReportTimestamp: string | null
+      dailyStats: DailyUptimeStat[]
+    }
+  }
+  lastUpdated: string
+}
+
+/**
+ * Convert a date to AEST date string (YYYY-MM-DD)
+ */
+function toAESTDateString(date: Date): string {
+  return date.toLocaleDateString('en-CA', {
+    timeZone: 'Australia/Brisbane',
+  }) // en-CA gives YYYY-MM-DD format
+}
+
+/**
+ * Calculate rolling 7-day uptime from daily stats
+ */
+function calculateRollingUptime7d(dailyStats: DailyUptimeStat[]): number {
+  const last7Days = dailyStats.slice(-7)
+  if (last7Days.length === 0) return 100
+
+  const totalExpected = last7Days.reduce((sum, d) => sum + d.expectedReports, 0)
+  const totalActual = last7Days.reduce((sum, d) => sum + d.actualReports, 0)
+
+  if (totalExpected === 0) return 100
+
+  // Cap at 100% to handle edge cases where actual exceeds expected
+  return Math.min(100, Math.round((totalActual / totalExpected) * 1000) / 10) // 1 decimal place
+}
+
+/**
+ * Update gauge uptime tracking data
+ * Called by the cron job after each fetch cycle
+ */
+export async function updateGaugeUptimeTracking(
+  allGaugeIds: string[],
+  reportingGaugeIds: Set<string>
+): Promise<boolean> {
+  const firestore = getDb()
+  if (!firestore) return false
+
+  try {
+    const now = new Date()
+    const todayStr = toAESTDateString(now)
+    const docRef = firestore.collection(COLLECTIONS.GAUGE_UPTIME).doc('summary')
+
+    // Get existing data or create new
+    const doc = await docRef.get()
+    const existingData = doc.exists ? (doc.data() as StoredGaugeUptime) : { gauges: {}, lastUpdated: '' }
+
+    // Update each gauge
+    for (const gaugeId of allGaugeIds) {
+      const isReporting = reportingGaugeIds.has(gaugeId)
+      const gaugeData = existingData.gauges[gaugeId] || {
+        rollingUptime7d: 100,
+        lastReportTimestamp: null,
+        dailyStats: [],
+      }
+
+      // Find or create today's stats
+      let todayStats = gaugeData.dailyStats.find(s => s.date === todayStr)
+      if (!todayStats) {
+        todayStats = {
+          date: todayStr,
+          uptime: 100,
+          expectedReports: 0,
+          actualReports: 0,
+          dataSource: 'ongoing',
+        }
+        gaugeData.dailyStats.push(todayStats)
+      } else if (todayStats.dataSource === 'backfill') {
+        // Handle backfill-to-ongoing transition: reset day's stats if it was from backfill
+        // Backfill data uses raw 15-min intervals (~96 reports/day)
+        // Ongoing tracking uses cron intervals (~720 reports/day at 2-min intervals)
+        // When ongoing tracking starts for a day that was backfilled, reset to track from scratch
+        todayStats.expectedReports = 0
+        todayStats.actualReports = 0
+        todayStats.dataSource = 'ongoing'
+      }
+
+      // Increment counters
+      todayStats.expectedReports++
+      if (isReporting) {
+        todayStats.actualReports++
+        gaugeData.lastReportTimestamp = now.toISOString()
+      }
+
+      // Recalculate today's uptime (cap at 100%)
+      todayStats.uptime = todayStats.expectedReports > 0
+        ? Math.min(100, Math.round((todayStats.actualReports / todayStats.expectedReports) * 1000) / 10)
+        : 100
+
+      // Keep only last 7 days of stats
+      gaugeData.dailyStats = gaugeData.dailyStats
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-7)
+
+      // Recalculate rolling 7-day uptime
+      gaugeData.rollingUptime7d = calculateRollingUptime7d(gaugeData.dailyStats)
+
+      existingData.gauges[gaugeId] = gaugeData
+    }
+
+    existingData.lastUpdated = now.toISOString()
+
+    // Store updated data
+    await docRef.set(existingData)
+    console.log(`[Firestore] Updated uptime tracking for ${allGaugeIds.length} gauges`)
+    return true
+  } catch (error) {
+    console.error('[Firestore] Error updating gauge uptime:', error)
+    return false
+  }
+}
+
+/**
+ * Get uptime summary for all gauges (for list view)
+ */
+export async function getGaugeUptimeSummary(): Promise<GaugeUptimeSummary | null> {
+  const firestore = getDb()
+  if (!firestore) return null
+
+  try {
+    const doc = await firestore.collection(COLLECTIONS.GAUGE_UPTIME).doc('summary').get()
+
+    if (!doc.exists) {
+      console.log('[Firestore] No gauge uptime data found')
+      return null
+    }
+
+    const data = doc.data() as StoredGaugeUptime
+
+    // Convert to summary format (without dailyStats for efficiency)
+    const summary: GaugeUptimeSummary = {}
+    for (const [gaugeId, gaugeData] of Object.entries(data.gauges)) {
+      summary[gaugeId] = {
+        rollingUptime7d: gaugeData.rollingUptime7d,
+        lastReportTimestamp: gaugeData.lastReportTimestamp,
+      }
+    }
+
+    console.log(`[Firestore] Retrieved uptime summary for ${Object.keys(summary).length} gauges`)
+    return summary
+  } catch (error) {
+    console.error('[Firestore] Error getting gauge uptime summary:', error)
+    return null
+  }
+}
+
+/**
+ * Get detailed uptime data for a single gauge (for detail view with bar chart)
+ */
+export async function getGaugeUptimeDetail(gaugeId: string): Promise<GaugeUptimeData | null> {
+  const firestore = getDb()
+  if (!firestore) return null
+
+  try {
+    const doc = await firestore.collection(COLLECTIONS.GAUGE_UPTIME).doc('summary').get()
+
+    if (!doc.exists) {
+      console.log('[Firestore] No gauge uptime data found')
+      return null
+    }
+
+    const data = doc.data() as StoredGaugeUptime
+    const gaugeData = data.gauges[gaugeId]
+
+    if (!gaugeData) {
+      console.log(`[Firestore] No uptime data for gauge ${gaugeId}`)
+      return null
+    }
+
+    return {
+      rollingUptime7d: gaugeData.rollingUptime7d,
+      lastReportTimestamp: gaugeData.lastReportTimestamp,
+      dailyStats: gaugeData.dailyStats,
+    }
+  } catch (error) {
+    console.error('[Firestore] Error getting gauge uptime detail:', error)
     return null
   }
 }

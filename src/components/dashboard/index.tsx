@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 // Export existing components
 export { GaugeCard } from './GaugeCard'
 export { StatusBadge } from './StatusBadge'
+export { UptimeBadge } from './UptimeBadge'
 export { WarningBanner } from './WarningBanner'
 export { WaterLevelChart } from './WaterLevelChart'
 

@@ -3,6 +3,7 @@
 import { cn, formatLevel, formatTimeSince, getTrendArrow, isDataStale } from '@/lib/utils'
 import type { GaugeData, Trend } from '@/lib/types'
 import { StatusBadge } from './StatusBadge'
+import { UptimeBadge } from './UptimeBadge'
 
 interface GaugeCardProps {
   gaugeData: GaugeData
@@ -179,7 +180,12 @@ export function GaugeCard({ gaugeData, onClick, selected, compact = false }: Gau
           <h3 className="text-lg font-semibold text-gray-900 truncate">{station.name}</h3>
           <p className="text-sm text-gray-600">{station.stream}</p>
         </div>
-        {hasData && <StatusBadge status={reading.status} size="sm" />}
+        <div className="flex items-center gap-2">
+          {hasData && <StatusBadge status={reading.status} size="sm" />}
+          {gaugeData.uptime && (
+            <UptimeBadge percentage={gaugeData.uptime.rollingUptime7d} size="sm" />
+          )}
+        </div>
       </header>
 
       {/* Water Level Display */}

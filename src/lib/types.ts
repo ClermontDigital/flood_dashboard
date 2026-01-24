@@ -144,6 +144,10 @@ export interface GaugeData {
   thresholds: FloodThresholds | null
   discharge?: DischargeReading | null
   rainfall?: RainfallReading | null
+  uptime?: {
+    rollingUptime7d: number
+    lastReportTimestamp: string | null
+  }
 }
 
 // Flood thresholds for a gauge
@@ -260,4 +264,26 @@ export interface RoadEventsResponse {
   lastUpdated: string
   source: 'qldtraffic'
   sourceUrl: string // Main QLDTraffic URL for verification
+}
+
+// Gauge uptime tracking
+export interface DailyUptimeStat {
+  date: string // "2026-01-23" (AEST)
+  uptime: number // 0-100 percentage
+  expectedReports: number
+  actualReports: number
+  dataSource?: 'backfill' | 'ongoing' // Indicates how this data was collected
+}
+
+export interface GaugeUptimeData {
+  rollingUptime7d: number // 7-day rolling average percentage
+  lastReportTimestamp: string | null
+  dailyStats: DailyUptimeStat[]
+}
+
+export interface GaugeUptimeSummary {
+  [gaugeId: string]: {
+    rollingUptime7d: number
+    lastReportTimestamp: string | null
+  }
 }

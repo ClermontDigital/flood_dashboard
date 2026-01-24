@@ -562,7 +562,6 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                           if (navigator.share) {
                             navigator.share({
                               title: `${selectedGaugeBasic.station.name} - Gauge`,
-                              text: `Water level at ${selectedGaugeBasic.station.name}: ${selectedGaugeBasic.reading?.level?.toFixed(2) ?? 'N/A'}m`,
                               url,
                             }).catch(() => {})
                           } else {

@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const title = `${gauge.name} - Gauge Queensland Flood Tracking`
-  const description = `Real-time water level monitoring for ${gauge.name} on ${gauge.stream}. View current levels, trends, and 7-day history.`
+  const description = `Water level monitoring for ${gauge.name} on ${gauge.stream}. View current levels, trends, and 7-day history.`
 
   return {
     title,

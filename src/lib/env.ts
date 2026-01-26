@@ -18,7 +18,7 @@ export const env = {
 
   // Timing
   refreshInterval: parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL || '300000', 10),
-  staleThreshold: parseInt(process.env.NEXT_PUBLIC_STALE_THRESHOLD || '7200000', 10),
+  staleThreshold: parseInt(process.env.NEXT_PUBLIC_STALE_THRESHOLD || '10800000', 10), // 3 hours for hourly gauges
 
   // Rate limiting
   rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '60', 10),

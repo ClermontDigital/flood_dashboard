@@ -78,6 +78,7 @@ export interface GaugeStation {
   role: string
   isOffline?: boolean
   lastDataYear?: number // Year when gauge last had data (for offline gauges)
+  reportingIntervalMinutes?: number // Expected reporting interval (default: 15, some gauges: 60)
 }
 
 // Water level reading
@@ -279,6 +280,7 @@ export interface GaugeUptimeData {
   rollingUptime7d: number // 7-day rolling average percentage
   lastReportTimestamp: string | null
   dailyStats: DailyUptimeStat[]
+  detectedIntervalMinutes?: number // Auto-detected reporting interval (15, 30, or 60 min)
 }
 
 export interface GaugeUptimeSummary {

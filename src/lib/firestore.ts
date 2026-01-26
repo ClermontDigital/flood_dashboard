@@ -417,9 +417,11 @@ export interface StoredGaugeUptime {
       rollingUptime7d: number
       lastReportTimestamp: string | null
       dailyStats: DailyUptimeStat[]
+      detectedIntervalMinutes?: number // Auto-detected or configured reporting interval
     }
   }
   lastUpdated: string
+  backfilledAt?: string // When backfill was last run
 }
 
 /**
@@ -448,8 +450,24 @@ function calculateRollingUptime7d(dailyStats: DailyUptimeStat[]): number {
 }
 
 /**
+ * Calculate expected reports for today based on elapsed time and reporting interval
+ */
+function calculateExpectedReportsToday(intervalMinutes: number): number {
+  const now = new Date()
+  // Get current time in AEST
+  const aestNow = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
+  // Minutes elapsed since midnight AEST
+  const minutesElapsed = aestNow.getHours() * 60 + aestNow.getMinutes()
+  // Expected reports = minutes elapsed / interval
+  return Math.floor(minutesElapsed / intervalMinutes)
+}
+
+/**
  * Update gauge uptime tracking data
  * Called by the cron job after each fetch cycle
+ *
+ * Uses each gauge's detected reporting interval to calculate expected reports,
+ * ensuring consistent uptime percentages regardless of how often the cron runs.
  */
 export async function updateGaugeUptimeTracking(
   allGaugeIds: string[],
@@ -474,10 +492,16 @@ export async function updateGaugeUptimeTracking(
         rollingUptime7d: 100,
         lastReportTimestamp: null,
         dailyStats: [],
+        detectedIntervalMinutes: 15, // Default to 15 min if not detected
       }
+
+      // Use detected interval or default to 15 minutes
+      const intervalMinutes = gaugeData.detectedIntervalMinutes || 15
 
       // Find or create today's stats
       let todayStats = gaugeData.dailyStats.find(s => s.date === todayStr)
+      const isNewDay = !todayStats
+
       if (!todayStats) {
         todayStats = {
           date: todayStr,
@@ -488,21 +512,31 @@ export async function updateGaugeUptimeTracking(
         }
         gaugeData.dailyStats.push(todayStats)
       } else if (todayStats.dataSource === 'backfill') {
-        // Handle backfill-to-ongoing transition: reset day's stats if it was from backfill
-        // Backfill data uses raw 15-min intervals (~96 reports/day)
-        // Ongoing tracking uses cron intervals (~720 reports/day at 2-min intervals)
-        // When ongoing tracking starts for a day that was backfilled, reset to track from scratch
-        todayStats.expectedReports = 0
-        todayStats.actualReports = 0
+        // Handle backfill-to-ongoing transition
+        // Keep the backfill actual reports as baseline, switch to ongoing tracking
         todayStats.dataSource = 'ongoing'
       }
 
-      // Increment counters
-      todayStats.expectedReports++
+      // Calculate expected reports based on time elapsed today and gauge's interval
+      // This ensures consistent uptime calculation regardless of cron frequency
+      todayStats.expectedReports = calculateExpectedReportsToday(intervalMinutes)
+
+      // For ongoing tracking, increment actual reports when gauge is reporting fresh data
       if (isReporting) {
-        todayStats.actualReports++
-        gaugeData.lastReportTimestamp = now.toISOString()
+        // Only increment if this is a new reading (check against last report time)
+        const lastReportTime = gaugeData.lastReportTimestamp ? new Date(gaugeData.lastReportTimestamp).getTime() : 0
+        const timeSinceLastReport = now.getTime() - lastReportTime
+
+        // Only count as new report if enough time has passed (at least half the interval)
+        // This prevents double-counting when cron runs more frequently than gauge reports
+        if (isNewDay || timeSinceLastReport >= (intervalMinutes * 60 * 1000 / 2)) {
+          todayStats.actualReports++
+          gaugeData.lastReportTimestamp = now.toISOString()
+        }
       }
+
+      // Cap actual reports at expected (gauge can't report more than expected)
+      todayStats.actualReports = Math.min(todayStats.actualReports, todayStats.expectedReports)
 
       // Recalculate today's uptime (cap at 100%)
       todayStats.uptime = todayStats.expectedReports > 0
@@ -593,6 +627,7 @@ export async function getGaugeUptimeDetail(gaugeId: string): Promise<GaugeUptime
       rollingUptime7d: gaugeData.rollingUptime7d,
       lastReportTimestamp: gaugeData.lastReportTimestamp,
       dailyStats: gaugeData.dailyStats,
+      detectedIntervalMinutes: gaugeData.detectedIntervalMinutes,
     }
   } catch (error) {
     console.error('[Firestore] Error getting gauge uptime detail:', error)

@@ -37,13 +37,14 @@ export function formatTimeSince(timestamp: string): string {
   }
 }
 
-// Check if data is stale (older than 2 hours)
+// Check if data is stale (older than 3 hours)
+// Using 3 hours to accommodate hourly-reporting gauges
 export function isDataStale(timestamp: string): boolean {
   try {
     const date = new Date(timestamp)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
-    return diffMs > 2 * 60 * 60 * 1000 // 2 hours
+    return diffMs > 3 * 60 * 60 * 1000 // 3 hours
   } catch {
     return true
   }

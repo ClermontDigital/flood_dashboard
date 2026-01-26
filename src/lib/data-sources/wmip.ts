@@ -347,33 +347,15 @@ function determineStatus(level: number, gaugeId: string): WaterLevel['status'] {
  */
 export async function fetchWMIPWaterLevel(gaugeId: string): Promise<WMIPResponse> {
   try {
-    // First get the available date range
-    const varInfo = await getVariableInfo(gaugeId)
-
-    if (!varInfo) {
-      console.log(`No variable info available for gauge ${gaugeId}`)
-      return { success: false, data: null, error: 'No data available' }
-    }
-
-    // Parse the period end date (format: YYYYMMDDHHmmss)
-    const periodEnd = varInfo.period_end
-    if (!periodEnd) {
-      return { success: false, data: null, error: 'No period end date' }
-    }
-
-    // Calculate start time (24 hours before period end)
-    const endYear = parseInt(periodEnd.slice(0, 4))
-    const endMonth = parseInt(periodEnd.slice(4, 6)) - 1
-    const endDay = parseInt(periodEnd.slice(6, 8))
-    const endHour = parseInt(periodEnd.slice(8, 10))
-    const endMinute = parseInt(periodEnd.slice(10, 12))
-    const endSecond = parseInt(periodEnd.slice(12, 14))
-
-    const endDate = new Date(endYear, endMonth, endDay, endHour, endMinute, endSecond)
-    const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000)
+    // Use current time as end time instead of relying on period_end from get_variable_list
+    // The period_end from get_variable_list can be stale, but get_ts_traces returns current data
+    const now = new Date()
+    // Convert to AEST (UTC+10) for WMIP timestamp
+    const aestNow = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
+    const startDate = new Date(aestNow.getTime() - 24 * 60 * 60 * 1000)
 
     const startTime = toWMIPTimestamp(startDate)
-    const endTime = periodEnd
+    const endTime = toWMIPTimestamp(aestNow)
 
     // Fetch the trace data
     const trace = await fetchWaterLevelData(gaugeId, startTime, endTime)
@@ -421,26 +403,14 @@ export async function fetchWMIPHistory(
   hoursBack: number = 24
 ): Promise<WMIPHistoryResponse> {
   try {
-    const varInfo = await getVariableInfo(gaugeId)
-
-    if (!varInfo || !varInfo.period_end) {
-      return { success: false, data: [], error: 'No data available' }
-    }
-
-    // Parse period end and calculate start
-    const periodEnd = varInfo.period_end
-    const endYear = parseInt(periodEnd.slice(0, 4))
-    const endMonth = parseInt(periodEnd.slice(4, 6)) - 1
-    const endDay = parseInt(periodEnd.slice(6, 8))
-    const endHour = parseInt(periodEnd.slice(8, 10))
-    const endMinute = parseInt(periodEnd.slice(10, 12))
-    const endSecond = parseInt(periodEnd.slice(12, 14))
-
-    const endDate = new Date(endYear, endMonth, endDay, endHour, endMinute, endSecond)
-    const startDate = new Date(endDate.getTime() - hoursBack * 60 * 60 * 1000)
+    // Use current time as end time instead of relying on period_end
+    const now = new Date()
+    // Convert to AEST (UTC+10) for WMIP timestamp
+    const aestNow = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
+    const startDate = new Date(aestNow.getTime() - hoursBack * 60 * 60 * 1000)
 
     const startTime = toWMIPTimestamp(startDate)
-    const endTime = periodEnd
+    const endTime = toWMIPTimestamp(aestNow)
 
     const trace = await fetchWaterLevelData(gaugeId, startTime, endTime)
 

@@ -78,8 +78,45 @@ GAUGE uses **Firestore + Cloud Scheduler** for reliable data caching across Clou
 - **Historical Charts**: 24-hour water level history with flood threshold indicators
 - **Flood Warnings**: Real-time BOM flood warning integration
 - **Rain Radar**: Live weather radar overlay from RainViewer
+- **7-Day Gauge Reliability**: Uptime tracking showing gauge reporting consistency over the past week
+- **Deep Linking**: Shareable URLs for specific gauges with proper OpenGraph metadata for social previews
+- **Anchor Links**: Direct links to page sections (map, details, history, reliability)
+- **Share & Bookmark**: Built-in share button with Web Share API and clipboard fallback
 - **Mobile Responsive**: Fully functional on all device sizes
 - **Offline-friendly**: Cached data for poor connectivity areas
+
+## URL Structure & Deep Linking
+
+GAUGE supports deep linking to specific gauges and page sections for easy sharing:
+
+### Gauge URLs
+Each gauge has a dedicated URL that preserves OpenGraph metadata for social media sharing:
+
+```
+https://gauge.clermont.digital/gauge/{gauge_id}
+```
+
+Examples:
+- `https://gauge.clermont.digital/gauge/130401A` - Sandy Creek at Clermont
+- `https://gauge.clermont.digital/gauge/143010A` - Burdekin River at Sellheim
+
+### Anchor Links
+Link directly to specific sections on any gauge page:
+
+| Anchor | Section |
+|--------|---------|
+| `#map` | Interactive map |
+| `#details` | Gauge details card |
+| `#history` | 24-Hour Water Level History chart |
+| `#reliability` | 7-Day Reliability chart |
+
+Example: `https://gauge.clermont.digital/gauge/130401A#history`
+
+### OpenGraph Support
+All gauge URLs generate proper OpenGraph metadata for rich social media previews, including:
+- Gauge-specific title and description
+- 1200x630 preview image
+- Twitter card support
 
 ## Tech Stack
 
@@ -289,9 +326,22 @@ docker-compose up -d
 | `/api/weather` | GET | Current weather conditions |
 | `/api/rainfall` | GET | Statewide rainfall (cached) or location-specific |
 | `/api/road-closures` | GET | Flood-related road closures from QLDTraffic |
+| `/api/uptime` | GET | 7-day gauge reliability/uptime statistics |
 | `/api/cron/fetch-water-data` | POST/GET | Cloud Scheduler endpoint (populates cache) |
+| `/api/cron/backfill-uptime` | POST/GET | One-time backfill of historical uptime data |
 
 All API endpoints first check Firestore cache (10 min TTL) and fall back to direct API fetch on cache miss.
+
+## Development
+
+### Agent Context (CLAUDE.md)
+
+The repository includes a `CLAUDE.md` file containing project-specific context for AI coding assistants. This documents:
+- Deployment configuration (region, service name)
+- Common gotchas and patterns
+- Architecture decisions and rationale
+
+This file is automatically read by compatible AI assistants to provide better context-aware assistance.
 
 ## Important Disclaimer
 

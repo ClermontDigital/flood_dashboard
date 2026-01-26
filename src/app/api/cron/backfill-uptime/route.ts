@@ -15,8 +15,111 @@ import type { DailyUptimeStat } from '@/lib/types'
 const WMIP_BASE_URL = 'https://water-monitoring.information.qld.gov.au/cgi/webservice.exe'
 const API_TIMEOUT = 30000
 
-// Expected reporting interval in minutes (most gauges report every 15 min)
-const EXPECTED_INTERVAL_MINUTES = 15
+// Default reporting interval in minutes (most gauges report every 15 min)
+const DEFAULT_INTERVAL_MINUTES = 15
+
+/**
+ * Detect the reporting interval from trace data timestamps
+ * Uses two methods: analyzing gaps between readings AND counting reports per day
+ * Returns the detected interval in minutes, or the default if unable to detect
+ */
+function detectReportingInterval(traceData: WMIPTracePoint[]): number {
+  // Filter valid points and sort by timestamp
+  const validPoints = traceData
+    .filter(p => p.q !== 255)
+    .sort((a, b) => a.t - b.t)
+
+  if (validPoints.length < 10) {
+    // Not enough data points to reliably detect interval
+    return DEFAULT_INTERVAL_MINUTES
+  }
+
+  // METHOD 1: Count reports per day, weighted towards recent days
+  // Recent reporting pattern is more relevant than historical
+  const readingsByDate = new Map<string, number>()
+  for (const point of validPoints) {
+    const date = parseWMIPTimestamp(point.t)
+    if (!date) continue
+    const dateStr = toAESTDateString(date)
+    readingsByDate.set(dateStr, (readingsByDate.get(dateStr) || 0) + 1)
+  }
+
+  // Get daily counts sorted by date (oldest first)
+  const sortedDates = Array.from(readingsByDate.keys()).sort()
+  const dailyCounts = sortedDates.map(d => readingsByDate.get(d) || 0)
+
+  // Remove first and last day as they may be partial
+  const completeDayCounts = dailyCounts.slice(1, -1)
+
+  if (completeDayCounts.length >= 3) {
+    // Use the most recent 3 complete days to determine interval
+    // This handles gauges that changed their reporting frequency
+    const recentCounts = completeDayCounts.slice(-3)
+    const recentAvg = recentCounts.reduce((a, b) => a + b, 0) / recentCounts.length
+
+    // Determine interval based on recent average reports per day
+    // ~24 reports/day = 60 min interval
+    // ~48 reports/day = 30 min interval
+    // ~96 reports/day = 15 min interval
+    if (recentAvg >= 18 && recentAvg <= 30) {
+      console.log(`[Backfill] Detected 60-min interval from recent avg ${recentAvg.toFixed(1)} reports/day`)
+      return 60
+    }
+    if (recentAvg >= 40 && recentAvg <= 56) {
+      console.log(`[Backfill] Detected 30-min interval from recent avg ${recentAvg.toFixed(1)} reports/day`)
+      return 30
+    }
+    if (recentAvg >= 80 && recentAvg <= 110) {
+      console.log(`[Backfill] Detected 15-min interval from recent avg ${recentAvg.toFixed(1)} reports/day`)
+      return 15
+    }
+  }
+
+  // METHOD 2: Analyze gaps between readings (fallback)
+  const intervals: number[] = []
+  for (let i = 1; i < validPoints.length; i++) {
+    const prevTime = parseWMIPTimestamp(validPoints[i - 1].t)
+    const currTime = parseWMIPTimestamp(validPoints[i].t)
+    if (!prevTime || !currTime) continue
+
+    const diffMs = currTime.getTime() - prevTime.getTime()
+    const diffMinutes = Math.round(diffMs / (1000 * 60))
+
+    // Only consider reasonable intervals (5 min to 2 hours)
+    if (diffMinutes >= 5 && diffMinutes <= 120) {
+      intervals.push(diffMinutes)
+    }
+  }
+
+  if (intervals.length < 5) {
+    return DEFAULT_INTERVAL_MINUTES
+  }
+
+  // Find the most common interval (mode)
+  const frequencyMap = new Map<number, number>()
+  for (const interval of intervals) {
+    // Round to nearest 5 minutes to group similar intervals
+    const rounded = Math.round(interval / 5) * 5
+    frequencyMap.set(rounded, (frequencyMap.get(rounded) || 0) + 1)
+  }
+
+  // Find the interval with highest frequency
+  let modeInterval = DEFAULT_INTERVAL_MINUTES
+  let maxCount = 0
+  for (const [interval, count] of frequencyMap) {
+    if (count > maxCount) {
+      maxCount = count
+      modeInterval = interval
+    }
+  }
+
+  // Validate and normalize to standard intervals
+  if (modeInterval >= 50 && modeInterval <= 70) return 60
+  if (modeInterval >= 25 && modeInterval <= 35) return 30
+  if (modeInterval >= 10 && modeInterval <= 20) return 15
+
+  return DEFAULT_INTERVAL_MINUTES
+}
 
 // Cron secret for authentication
 const CRON_SECRET = process.env.CRON_SECRET
@@ -191,13 +294,21 @@ async function fetchHistoricalTrace(
 /**
  * Calculate daily uptime stats from trace data
  *
- * Note: This uses raw WMIP point data (96 expected readings/day at 15-min intervals).
+ * Note: This uses raw WMIP point data with auto-detected reporting intervals.
  * The ongoing tracking in firestore.ts counts each cron run (~720/day at 2-min intervals).
  * This difference is acceptable because:
  * 1. The uptime percentage calculation (actual/expected) normalizes to comparable values
  * 2. Ongoing tracking will eventually replace backfilled data as days roll forward
+ *
+ * @param traceData - Raw trace data from WMIP
+ * @param daysBack - Number of days to calculate stats for
+ * @param intervalMinutes - Detected or configured reporting interval in minutes
  */
-function calculateDailyStats(traceData: WMIPTracePoint[], daysBack: number = 7): DailyUptimeStat[] {
+function calculateDailyStats(
+  traceData: WMIPTracePoint[],
+  daysBack: number = 7,
+  intervalMinutes: number = DEFAULT_INTERVAL_MINUTES
+): DailyUptimeStat[] {
   const now = new Date()
   const dailyStats: DailyUptimeStat[] = []
 
@@ -214,24 +325,26 @@ function calculateDailyStats(traceData: WMIPTracePoint[], daysBack: number = 7):
     readingsByDate.set(dateStr, (readingsByDate.get(dateStr) || 0) + 1)
   }
 
+  // Calculate expected reports based on detected interval
+  // 15 min = 96/day, 30 min = 48/day, 60 min = 24/day
+  const expectedReportsPerDay = Math.floor((24 * 60) / intervalMinutes)
+
   // Calculate stats for each day
   for (let i = daysBack - 1; i >= 0; i--) {
     const date = new Date(now)
     date.setDate(date.getDate() - i)
     const dateStr = toAESTDateString(date)
 
-    // Expected readings per day for raw 15-minute interval data (4 per hour × 24 hours)
-    const expectedReports = 96
     const actualReports = readingsByDate.get(dateStr) || 0
 
-    const uptime = expectedReports > 0
-      ? Math.min(100, Math.round((actualReports / expectedReports) * 1000) / 10)
+    const uptime = expectedReportsPerDay > 0
+      ? Math.min(100, Math.round((actualReports / expectedReportsPerDay) * 1000) / 10)
       : 0
 
     dailyStats.push({
       date: dateStr,
       uptime,
-      expectedReports,
+      expectedReports: expectedReportsPerDay,
       actualReports,
       dataSource: 'backfill',
     })
@@ -287,6 +400,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     rollingUptime7d: number
     lastReportTimestamp: string | null
     dailyStats: DailyUptimeStat[]
+    detectedIntervalMinutes: number
   }> = {}
 
   for (let i = 0; i < gaugeIds.length; i += batchSize) {
@@ -303,13 +417,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           uptimeData[gaugeId] = {
             rollingUptime7d: 0,
             lastReportTimestamp: null,
-            dailyStats: calculateDailyStats([], 7),
+            dailyStats: calculateDailyStats([], 7, DEFAULT_INTERVAL_MINUTES),
+            detectedIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
           }
           return
         }
 
-        // Calculate daily stats
-        const dailyStats = calculateDailyStats(traceData, 7)
+        // Detect the reporting interval for this gauge
+        // Check if gauge has a configured interval, otherwise auto-detect
+        const gaugeConfig = GAUGE_STATIONS.find(g => g.id === gaugeId)
+        const intervalMinutes = gaugeConfig?.reportingIntervalMinutes || detectReportingInterval(traceData)
+
+        // Calculate daily stats using the detected/configured interval
+        const dailyStats = calculateDailyStats(traceData, 7, intervalMinutes)
         const rollingUptime7d = calculateRollingUptime7d(dailyStats)
 
         // Find last valid reading timestamp (sort by timestamp to ensure correct ordering)
@@ -324,10 +444,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           rollingUptime7d,
           lastReportTimestamp,
           dailyStats,
+          detectedIntervalMinutes: intervalMinutes,
         }
 
         results[gaugeId] = { success: true, uptime: rollingUptime7d }
-        console.log(`[Backfill] ${gaugeId}: ${rollingUptime7d}% (${traceData.length} readings)`)
+        console.log(`[Backfill] ${gaugeId}: ${rollingUptime7d}% (${traceData.length} readings, ${intervalMinutes}min interval)`)
 
       } catch (error) {
         results[gaugeId] = {

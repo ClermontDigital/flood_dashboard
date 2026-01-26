@@ -31,20 +31,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       siteName: 'Gauge',
       locale: 'en_AU',
       type: 'website',
-      images: [
-        {
-          url: 'https://gauge.clermont.digital/opengraph-image',
-          width: 1200,
-          height: 630,
-          alt: 'Gauge - Queensland Flood Tracking',
-        },
-      ],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: ['https://gauge.clermont.digital/opengraph-image'],
     },
   }
 }

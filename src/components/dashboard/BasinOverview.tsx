@@ -135,9 +135,10 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
       danger: withReadings.filter(g => g.reading?.status === 'danger').length,
     }
     const rising = withReadings.filter(g => g.reading?.trend === 'rising').length
+    const risingSafe = withReadings.filter(g => g.reading?.trend === 'rising' && g.reading?.status === 'safe').length
     const falling = withReadings.filter(g => g.reading?.trend === 'falling').length
 
-    return { total: gauges.length, active: withReadings.length, statusCounts, rising, falling }
+    return { total: gauges.length, active: withReadings.length, statusCounts, rising, risingSafe, falling }
   }, [gauges])
 
   if (isLoading) {
@@ -180,17 +181,28 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
             {basinStats.statusCounts.watch} Watch
           </span>
         )}
+        {basinStats.risingSafe > 0 && (
+          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+            {basinStats.risingSafe} Rising
+          </span>
+        )}
       </div>
 
-      {/* Horizontal scrolling gauge cards by river system - only show watch, warning, danger */}
-      {(basinStats.statusCounts.watch + basinStats.statusCounts.warning + basinStats.statusCounts.danger) > 0 ? (
+      {/* Horizontal scrolling gauge cards by river system - show alerts and rising gauges */}
+      {(basinStats.statusCounts.watch + basinStats.statusCounts.warning + basinStats.statusCounts.danger + basinStats.rising) > 0 ? (
         <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
           {RIVER_ORDER.map(river => {
             const riverGauges = groupedGauges.get(river) || []
-            // Only show gauges with elevated status (watch, warning, danger)
+            // Show gauges with elevated status OR rising trend
             const alertGauges = riverGauges.filter(g =>
-              g.reading && ['watch', 'warning', 'danger'].includes(g.reading.status)
-            )
+              g.reading && (
+                ['watch', 'warning', 'danger'].includes(g.reading.status) ||
+                g.reading.trend === 'rising'
+              )
+            ).sort((a, b) => {
+              const priority: Record<string, number> = { danger: 0, warning: 1, watch: 2, safe: 3 }
+              return (priority[a.reading?.status || 'safe'] ?? 3) - (priority[b.reading?.status || 'safe'] ?? 3)
+            })
             if (alertGauges.length === 0) return null
 
             return (

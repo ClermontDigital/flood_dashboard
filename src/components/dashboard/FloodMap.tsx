@@ -208,16 +208,44 @@ function createDamIcon(isOffline: boolean = false): L.DivIcon {
 }
 
 // RainViewer radar layer component
+// RainViewer free API supports tiles up to zoom 7 (512px) or zoom 10 (256px)
+const RAIN_RADAR_MAX_ZOOM = 7
+
 function RainRadarLayer({ enabled }: { enabled: boolean }) {
   const map = useMap()
   const [radarLayer, setRadarLayer] = useState<L.TileLayer | null>(null)
-  const [radarTime, setRadarTime] = useState<string>('')
+  const [tileUrl, setTileUrl] = useState<string | null>(null)
+
+  // Remove/add radar layer based on zoom level
+  useEffect(() => {
+    if (!tileUrl || !enabled) return
+
+    const updateLayer = () => {
+      const zoom = map.getZoom()
+      if (zoom > RAIN_RADAR_MAX_ZOOM) {
+        // Too zoomed in — remove radar layer entirely to prevent error tiles
+        if (radarLayer && map.hasLayer(radarLayer)) {
+          map.removeLayer(radarLayer)
+        }
+      } else {
+        // Zoom is supported — add layer back if not present
+        if (radarLayer && !map.hasLayer(radarLayer)) {
+          radarLayer.addTo(map)
+        }
+      }
+    }
+
+    updateLayer()
+    map.on('zoomend', updateLayer)
+    return () => { map.off('zoomend', updateLayer) }
+  }, [radarLayer, tileUrl, enabled, map])
 
   useEffect(() => {
     if (!enabled) {
       if (radarLayer) {
         map.removeLayer(radarLayer)
         setRadarLayer(null)
+        setTileUrl(null)
       }
       return
     }
@@ -227,31 +255,28 @@ function RainRadarLayer({ enabled }: { enabled: boolean }) {
       .then(res => res.json())
       .then(data => {
         if (data.radar && data.radar.past && data.radar.past.length > 0) {
-          // Get the most recent radar frame
           const latestFrame = data.radar.past[data.radar.past.length - 1]
           const host = data.host
-
-          // Create tile layer URL
-          const tileUrl = `${host}${latestFrame.path}/${RAINVIEWER_CONFIG.tileSize}/{z}/{x}/{y}/${RAINVIEWER_CONFIG.colorScheme}/${RAINVIEWER_CONFIG.smooth}_${RAINVIEWER_CONFIG.snow}.png`
+          const url = `${host}${latestFrame.path}/${RAINVIEWER_CONFIG.tileSize}/{z}/{x}/{y}/${RAINVIEWER_CONFIG.colorScheme}/${RAINVIEWER_CONFIG.smooth}_${RAINVIEWER_CONFIG.snow}.png`
 
           // Remove old layer if exists
           if (radarLayer) {
             map.removeLayer(radarLayer)
           }
 
-          // Add new radar layer
-          const newLayer = L.tileLayer(tileUrl, {
+          const newLayer = L.tileLayer(url, {
             opacity: RAINVIEWER_CONFIG.opacity,
             zIndex: 100,
             attribution: RAINVIEWER_CONFIG.attribution,
+            maxZoom: RAIN_RADAR_MAX_ZOOM,
           })
 
-          newLayer.addTo(map)
+          // Only add if current zoom is within supported range
+          if (map.getZoom() <= RAIN_RADAR_MAX_ZOOM) {
+            newLayer.addTo(map)
+          }
           setRadarLayer(newLayer)
-
-          // Update radar time
-          const radarDate = new Date(latestFrame.time * 1000)
-          setRadarTime(radarDate.toLocaleTimeString())
+          setTileUrl(url)
         }
       })
       .catch(err => {
@@ -386,6 +411,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
         key={`flood-map-${mountKey}`}
         center={mapCenter}
         zoom={DEFAULT_ZOOM}
+        maxZoom={19}
         className="w-full h-full rounded-lg"
         scrollWheelZoom={true}
         touchZoom={true}
@@ -397,17 +423,10 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
           key={mapLayer}
           attribution={currentLayerConfig.attribution}
           url={currentLayerConfig.url}
+          maxNativeZoom={currentLayerConfig.maxNativeZoom}
+          maxZoom={19}
+          {...(mapLayer !== 'street' ? { tileSize: 512, zoomOffset: -1 } : {})}
         />
-
-        {/* Add labels overlay for hybrid mode */}
-        {mapLayer === 'hybrid' && currentLayerConfig.hasLabels && (
-          <TileLayer
-            key="hybrid-labels"
-            url={currentLayerConfig.labelsUrl}
-            attribution=""
-            pane="overlayPane"
-          />
-        )}
 
         <MapController
           center={center}

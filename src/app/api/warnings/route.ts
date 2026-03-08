@@ -41,93 +41,17 @@ function generateMockWarnings(): FloodWarning[] {
 }
 
 export async function GET(): Promise<NextResponse<WarningsResponse>> {
-  let warnings: FloodWarning[] = []
-  let source = 'bom'
-
-  try {
-    const bomResult = await fetchBOMWarnings()
-
-    if (bomResult) {
-      warnings = bomResult
-
-      // Filter to only include Queensland areas
-      warnings = warnings.filter((warning) => {
-        const area = warning.area.toLowerCase()
-        const title = warning.title.toLowerCase()
-        const summary = warning.summary.toLowerCase()
-
-        // Queensland regions and river systems
-        const relevantAreas = [
-          // State
-          'queensland', 'qld',
-          // Southeast Queensland
-          'brisbane', 'ipswich', 'gold coast', 'logan', 'moreton', 'lockyer', 'bremer',
-          'sunshine coast', 'noosa', 'caloundra', 'beenleigh', 'beaudesert',
-          // Wide Bay-Burnett
-          'bundaberg', 'burnett', 'maryborough', 'gympie', 'mary river', 'hervey bay',
-          // Central Queensland
-          'fitzroy', 'isaac', 'mackenzie', 'clermont', 'nogoa', 'comet',
-          'central queensland', 'central highlands', 'rockhampton', 'emerald', 'gladstone',
-          // Mackay-Whitsunday
-          'mackay', 'pioneer', 'proserpine', 'whitsunday', 'bowen',
-          // North Queensland
-          'townsville', 'burdekin', 'ross', 'haughton', 'ayr', 'ingham', 'herbert',
-          // Far North Queensland
-          'cairns', 'barron', 'mulgrave', 'johnstone', 'innisfail', 'mareeba', 'atherton',
-          'daintree', 'mossman', 'cooktown', 'douglas',
-          // Darling Downs
-          'darling downs', 'toowoomba', 'warwick', 'dalby', 'chinchilla', 'condamine',
-          'roma', 'miles', 'goondiwindi',
-          // Western Queensland
-          'mount isa', 'longreach', 'winton', 'cloncurry', 'julia creek',
-        ]
-
-        return relevantAreas.some(
-          (region) =>
-            area.includes(region) ||
-            title.includes(region) ||
-            summary.includes(region)
-        )
-      })
-
-      // Sort by severity (major > moderate > minor) and then by issue time
-      const severityOrder: Record<string, number> = {
-        major: 3,
-        moderate: 2,
-        minor: 1,
-      }
-
-      warnings.sort((a, b) => {
-        const severityDiff = severityOrder[b.level] - severityOrder[a.level]
-        if (severityDiff !== 0) return severityDiff
-
-        // More recent warnings first
-        return (
-          new Date(b.issueTime).getTime() - new Date(a.issueTime).getTime()
-        )
-      })
-    } else {
-      // Use mock data as fallback
-      warnings = generateMockWarnings()
-      source = 'mock'
-    }
-  } catch (error) {
-    console.error('Error fetching warnings:', error)
-    // Use mock data as fallback
-    warnings = generateMockWarnings()
-    source = 'mock'
-  }
-
+  // Warnings banner disabled — returns empty to prevent overlay on dashboard
   const response: WarningsResponse = {
-    active: warnings.length > 0,
-    warnings,
+    active: false,
+    warnings: [],
     lastChecked: new Date().toISOString(),
   }
 
   return NextResponse.json(response, {
     headers: {
       'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
-      'X-Data-Source': source,
+      'X-Data-Source': 'disabled',
     },
   })
 }

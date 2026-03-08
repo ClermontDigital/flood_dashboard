@@ -109,6 +109,7 @@ function ExternalLinkIcon({ className }: { className?: string }) {
 
 export function WarningBanner({ warnings, onDismiss }: WarningBannerProps) {
   const [isDismissed, setIsDismissed] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
   const [dismissedWarningIds, setDismissedWarningIds] = useState<Set<string>>(new Set())
 
   // Get the highest severity level from all warnings - memoized

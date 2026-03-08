@@ -1,0 +1,16 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_MAPBOX_TOKEN=${_MAPBOX_TOKEN}'
+      - '-t'
+      - '${_IMAGE}'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE}']
+images:
+  - '${_IMAGE}'
+substitutions:
+  _IMAGE: 'asia-southeast1-docker.pkg.dev/clermontdigital-1741262269603/cloud-run-source-deploy/gauge-dashboard'
+  _MAPBOX_TOKEN: ''

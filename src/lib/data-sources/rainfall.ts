@@ -303,7 +303,7 @@ export interface StateRainfallResponse {
 export async function fetchStateRainfall(): Promise<StateRainfallResponse> {
   try {
     // Fetch rainfall in batches to avoid rate limiting
-    const batchSize = 5  // Smaller batch size to be gentle on the API
+    const batchSize = 3  // Small batch size to stay under Open-Meteo rate limits
     const results: Array<{ location: typeof QLD_SAMPLE_LOCATIONS[0]; result: RainfallResponse }> = []
 
     for (let i = 0; i < QLD_SAMPLE_LOCATIONS.length; i += batchSize) {
@@ -316,9 +316,9 @@ export async function fetchStateRainfall(): Promise<StateRainfallResponse> {
       )
       results.push(...batchResults)
 
-      // Small delay between batches to avoid rate limiting
+      // Longer delay between batches to avoid Open-Meteo 429 rate limiting
       if (i + batchSize < QLD_SAMPLE_LOCATIONS.length) {
-        await new Promise(resolve => setTimeout(resolve, 100))
+        await new Promise(resolve => setTimeout(resolve, 2000))
       }
     }
 

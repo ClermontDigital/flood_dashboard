@@ -306,7 +306,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Track per-gauge uptime (which gauges reported FRESH data)
     // Only count as "reporting" if data timestamp is within 2 hours
     console.log('[Cron] Updating gauge uptime tracking...')
-    const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000 // 2 hours
+    const STALE_THRESHOLD_MS = 3 * 60 * 60 * 1000 // 3 hours (accounts for hourly gauges and timezone differences)
     const now = Date.now()
     const reportingGaugeIds = new Set<string>()
     for (const [gaugeId, reading] of waterLevelMap) {

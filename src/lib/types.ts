@@ -267,6 +267,29 @@ export interface RoadEventsResponse {
   sourceUrl: string // Main QLDTraffic URL for verification
 }
 
+// Flood detection result from image analysis
+export interface FloodDetection {
+  status: 'dry' | 'possible' | 'likely'
+  waterPercent: number // 0-100 percentage of brown/muddy water pixels
+  analyzedAt: string   // ISO timestamp
+}
+
+// Flood camera from council dashboard
+export interface FloodCamera {
+  id: number
+  description: string
+  lat: number
+  lng: number
+  imageUrls: string[]
+  source: string
+  floodDetection?: FloodDetection
+}
+
+export interface FloodCamerasResponse {
+  cameras: FloodCamera[]
+  lastUpdated: string
+}
+
 // Gauge uptime tracking
 export interface DailyUptimeStat {
   date: string // "2026-01-23" (AEST)

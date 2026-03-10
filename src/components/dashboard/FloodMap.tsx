@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
 import L from 'leaflet'
-import type { GaugeData, FloodStatus, RiverSystem, RoadEvent, DamStation } from '@/lib/types'
+import type { GaugeData, FloodStatus, RiverSystem, RoadEvent, DamStation, FloodCamera, FloodDetection } from '@/lib/types'
 import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES, DAM_STATIONS, RAINVIEWER_CONFIG } from '@/lib/constants'
 import { cn, formatLevel, getTrendArrow, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
@@ -20,6 +20,8 @@ interface FloodMapProps {
   showRoadClosures?: boolean
   showDams?: boolean
   showRainRadar?: boolean
+  cameras?: FloodCamera[]
+  showCameras?: boolean
 }
 
 // Create custom colored markers for different status levels
@@ -207,6 +209,57 @@ function createDamIcon(isOffline: boolean = false): L.DivIcon {
   })
 }
 
+// Create flood camera icon
+const FLOOD_DETECTION_COLORS: Record<FloodDetection['status'], string> = {
+  dry: '#7c3aed',      // Purple (default)
+  possible: '#f59e0b', // Amber
+  likely: '#ef4444',    // Red
+}
+
+function createCameraIcon(floodStatus?: FloodDetection['status']): L.DivIcon {
+  const color = FLOOD_DETECTION_COLORS[floodStatus || 'dry']
+  const pulse = floodStatus === 'likely' ? `
+    <div style="
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background-color: ${color};
+      opacity: 0.4;
+      animation: cameraPulse 2s ease-in-out infinite;
+    "></div>
+  ` : ''
+
+  return L.divIcon({
+    className: 'camera-marker',
+    html: `
+      <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+        ${pulse}
+        <div style="
+          width: 28px;
+          height: 28px;
+          background-color: ${color};
+          border: 3px solid white;
+          border-radius: 50%;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+          z-index: 1;
+        ">
+          <svg viewBox="0 0 24 24" fill="white" style="width: 16px; height: 16px;">
+            <path d="M12 15.2c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm8-10.2h-3.2l-1.8-2h-6l-1.8 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm-8 13c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5z"/>
+          </svg>
+        </div>
+      </div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14],
+  })
+}
+
 // RainViewer radar layer component
 // RainViewer free API supports tiles up to zoom 7 (512px) or zoom 10 (256px)
 const RAIN_RADAR_MAX_ZOOM = 7
@@ -293,7 +346,7 @@ function RainRadarLayer({ enabled }: { enabled: boolean }) {
   return null
 }
 
-// Component to handle map view changes
+// Component to handle map view changes - only flies when values actually change
 function MapController({ center, selectedGaugeId, gauges, searchedLocation }: {
   center?: [number, number]
   selectedGaugeId?: string
@@ -301,24 +354,36 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation }: {
   searchedLocation?: { lat: number; lng: number; name: string } | null
 }) {
   const map = useMap()
+  const prevGaugeId = useRef<string | undefined>(undefined)
+  const prevSearchLat = useRef<number | undefined>(searchedLocation?.lat)
+  const prevCenter = useRef<[number, number] | undefined>(undefined)
 
   useEffect(() => {
-    if (searchedLocation) {
-      map.flyTo([searchedLocation.lat, searchedLocation.lng], 14, {
-        duration: 0.5
-      })
-    } else if (selectedGaugeId) {
+    // Only fly to search location when it actually changes
+    if (searchedLocation && searchedLocation.lat !== prevSearchLat.current) {
+      prevSearchLat.current = searchedLocation.lat
+      map.flyTo([searchedLocation.lat, searchedLocation.lng], 14, { duration: 0.5 })
+      return
+    }
+
+    // Only fly to gauge when the selected gauge ID changes
+    if (selectedGaugeId && selectedGaugeId !== prevGaugeId.current) {
+      prevGaugeId.current = selectedGaugeId
       const gauge = gauges.find(g => g.station.id === selectedGaugeId)
       if (gauge) {
-        map.flyTo([gauge.station.lat, gauge.station.lng], 12, {
-          duration: 0.5
-        })
+        map.flyTo([gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), { duration: 0.5 })
       }
-    } else if (center) {
-      map.flyTo(center, DEFAULT_ZOOM, {
-        duration: 0.5
-      })
+      return
     }
+
+    // Only fly to center when it actually changes (not same coords)
+    if (center && (!prevCenter.current || center[0] !== prevCenter.current[0] || center[1] !== prevCenter.current[1])) {
+      prevCenter.current = center
+      map.flyTo(center, DEFAULT_ZOOM, { duration: 0.5 })
+    }
+
+    prevGaugeId.current = selectedGaugeId
+    prevSearchLat.current = searchedLocation?.lat
   }, [center, selectedGaugeId, gauges, map, searchedLocation])
 
   return null
@@ -355,10 +420,12 @@ function MapLayerToggle({
   )
 }
 
-function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true }: FloodMapProps) {
+function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true }: FloodMapProps) {
   const mapCenter = center || CLERMONT_CENTER
   const [mapLayer, setMapLayer] = useState<MapLayerType>(() =>
     getLocalStorage<MapLayerType>('mapLayer', 'satellite')
+  )
+  const [expandedImage, setExpandedImage] = useState<{ urls: string[]; index: number; title: string } | null>(null
   )
 
   // Fix for React 18 Strict Mode - use a unique key per mount cycle
@@ -377,6 +444,13 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
   const damIcons = useMemo(() => ({
     active: createDamIcon(false),
     offline: createDamIcon(true),
+  }), [])
+
+  // Memoize camera icon
+  const cameraIcons = useMemo(() => ({
+    dry: createCameraIcon('dry'),
+    possible: createCameraIcon('possible'),
+    likely: createCameraIcon('likely'),
   }), [])
 
   // Memoize road event icons
@@ -774,7 +848,140 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
           )
         })}
 
+        {/* Flood camera markers */}
+        {showCameras && cameras.map((camera) => {
+          const detection = camera.floodDetection
+          const detectionStatus = detection?.status || 'dry'
+          return (
+            <Marker
+              key={`camera-${camera.source}-${camera.id}`}
+              position={[camera.lat, camera.lng]}
+              icon={cameraIcons[detectionStatus]}
+            >
+              <Popup maxWidth={360} minWidth={280} autoPanPadding={[50, 50]}>
+                <div className="p-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg className="w-4 h-4 text-violet-600 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 15.2c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm8-10.2h-3.2l-1.8-2h-6l-1.8 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm-8 13c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5z"/>
+                    </svg>
+                    <h3 className="font-semibold text-gray-900 text-sm">
+                      {camera.description}
+                    </h3>
+                  </div>
+
+                  {detection && (
+                    <div className={cn(
+                      'flex items-center gap-2 px-2 py-1 rounded text-xs font-medium mb-2',
+                      detectionStatus === 'likely' && 'bg-red-100 text-red-800',
+                      detectionStatus === 'possible' && 'bg-amber-100 text-amber-800',
+                      detectionStatus === 'dry' && 'bg-green-100 text-green-800',
+                    )}>
+                      <span className={cn(
+                        'w-2 h-2 rounded-full flex-shrink-0',
+                        detectionStatus === 'likely' && 'bg-red-500',
+                        detectionStatus === 'possible' && 'bg-amber-500',
+                        detectionStatus === 'dry' && 'bg-green-500',
+                      )} />
+                      {detectionStatus === 'likely' && 'Flood water likely'}
+                      {detectionStatus === 'possible' && 'Possible flood water'}
+                      {detectionStatus === 'dry' && 'No flood water detected'}
+                    </div>
+                  )}
+
+                  {camera.imageUrls.map((url, i) => {
+                    const imgSrc = `${url}${url.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`
+                    return (
+                      <img
+                        key={i}
+                        src={imgSrc}
+                        alt={camera.description}
+                        className="w-full rounded mb-1 cursor-pointer hover:opacity-90 transition-opacity"
+                        style={{ maxHeight: '200px', objectFit: 'cover' }}
+                        loading="lazy"
+                        onClick={() => {
+                          const allUrls = camera.imageUrls.map(u => `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`)
+                          setExpandedImage({ urls: allUrls, index: i, title: camera.description })
+                        }}
+                        title="Click to enlarge"
+                      />
+                    )
+                  })}
+
+                  <p className="text-xs text-gray-500 mt-1">
+                    Source: {camera.source} | Updates every 15 min
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        })}
+
       </MapContainer>
+
+      {/* Expanded camera image modal */}
+      {expandedImage && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setExpandedImage(null)}
+        >
+          <div className="relative max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setExpandedImage(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+              aria-label="Close enlarged image"
+            >
+              <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-white text-sm font-medium">{expandedImage.title}</p>
+              {expandedImage.urls.length > 1 && (
+                <p className="text-white/60 text-xs">
+                  {expandedImage.index + 1} / {expandedImage.urls.length}
+                </p>
+              )}
+            </div>
+            <div className="relative">
+              <img
+                src={expandedImage.urls[expandedImage.index]}
+                alt={`${expandedImage.title} - Image ${expandedImage.index + 1}`}
+                className="w-full rounded-lg shadow-2xl"
+                style={{ maxHeight: '80vh', objectFit: 'contain' }}
+              />
+              {expandedImage.urls.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setExpandedImage({
+                      ...expandedImage,
+                      index: (expandedImage.index - 1 + expandedImage.urls.length) % expandedImage.urls.length,
+                    })}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors"
+                    aria-label="Previous image"
+                  >
+                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setExpandedImage({
+                      ...expandedImage,
+                      index: (expandedImage.index + 1) % expandedImage.urls.length,
+                    })}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors"
+                    aria-label="Next image"
+                  >
+                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

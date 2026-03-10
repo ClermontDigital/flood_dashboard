@@ -6,7 +6,7 @@ import useSWR from 'swr'
 import { QLD_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/lib/constants'
 import Image from 'next/image'
 import Link from 'next/link'
-import type { GaugeData, WaterLevelsResponse, FloodWarning, HistoryPoint, FloodThresholds, GaugeStation, RoadEventsResponse, GaugeUptimeData } from '@/lib/types'
+import type { GaugeData, WaterLevelsResponse, FloodWarning, HistoryPoint, FloodThresholds, GaugeStation, RoadEventsResponse, GaugeUptimeData, FloodCamera, FloodCamerasResponse } from '@/lib/types'
 import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Loading placeholder component
@@ -80,6 +80,7 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
   const [showRoadClosures, setShowRoadClosures] = useState<boolean>(true)
   const [showDams, setShowDams] = useState<boolean>(true)
   const [showRainRadar, setShowRainRadar] = useState<boolean>(true)
+  const [showCameras, setShowCameras] = useState<boolean>(true)
 
   // Ref for gauge details section to scroll to
   const gaugeDetailsRef = useRef<HTMLDivElement>(null)
@@ -211,6 +212,13 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
   // Fetch road closures from QLDTraffic
   const { data: roadClosuresData } = useSWR<RoadEventsResponse>(
     '/api/road-closures',
+    fetcher,
+    { refreshInterval: REFRESH_INTERVAL }
+  )
+
+  // Fetch flood cameras
+  const { data: camerasData } = useSWR<FloodCamerasResponse>(
+    '/api/cameras',
     fetcher,
     { refreshInterval: REFRESH_INTERVAL }
   )
@@ -392,6 +400,8 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                   showRoadClosures={showRoadClosures}
                   showDams={showDams}
                   showRainRadar={showRainRadar}
+                  cameras={camerasData?.cameras}
+                  showCameras={showCameras}
                 />
               </div>
 
@@ -469,6 +479,33 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                     <span className="text-xs font-medium text-gray-700">Rain Radar</span>
                   </div>
 
+                  {/* Cameras Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowCameras(!showCameras)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showCameras ? 'bg-purple-600' : 'bg-gray-200'
+                      )}
+                      role="switch"
+                      aria-checked={showCameras}
+                      aria-label="Show flood cameras on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showCameras ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Cameras</span>
+                    {camerasData?.cameras && camerasData.cameras.length > 0 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        {camerasData.cameras.length}
+                      </span>
+                    )}
+                  </div>
+
                   {/* Source Links */}
                   <div className="flex items-center gap-3 ml-auto text-xs text-gray-500">
                     <span>Sources:</span>
@@ -497,6 +534,24 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                       className="text-blue-600 hover:underline"
                     >
                       RainViewer
+                    </a>
+                    <span>|</span>
+                    <a
+                      href="https://dashboard.isaac.qld.gov.au/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      Isaac RC
+                    </a>
+                    <span>|</span>
+                    <a
+                      href="https://beprepared.chrc.qld.gov.au/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      CHRC
                     </a>
                   </div>
                 </div>

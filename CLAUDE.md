@@ -31,13 +31,18 @@ gcloud run deploy gauge-dashboard --source . --region asia-southeast1 --project 
 - Slow API: 2-5 seconds per request
 - No authentication required
 - Rate limiting exists but not well documented
-- **Key gotcha:** Multi-site batching doesn't work - must fetch gauges individually
+- Multi-site requests work (batches of ~40 sites per `get_ts_traces` call); WMIP returns HTTP 408 if several large requests arrive at once, so send batches one at a time
+- Use `data_type: 'point'` for current levels — `mean`/`hour` returns synthetic hourly buckets that lag 1–2 hours
+- Many historic station IDs are closed (archive datasource `A` only). `GAUGE_ID_ALIASES` in constants.ts maps retired IDs to their replacements; `resolveGaugeId()` is used by `/gauge/[id]`
 
 ### Gauge Reporting Intervals
 **CRITICAL:** Not all gauges report at the same frequency!
 - Most gauges: Every 15 minutes (96 readings/day)
 - Some gauges: Hourly (24 readings/day) - e.g., Sandy Creek @ Clermont
 - The uptime tracking currently assumes 96 readings/day, causing hourly gauges to show ~25% uptime even when functioning perfectly
+
+### Flood Status Model
+`FloodStatus` (src/lib/types.ts): `safe` = below minor, `watch` = minor, `warning` = moderate, `danger` = major flood level. `unknown` = the gauge has a reading but no official flood levels — shown as a blue "Level only" badge, never as safe. Labels and colours are `STATUS_LABELS` / `STATUS_COLORS` in constants.ts and `statusConfig` in StatusBadge.tsx.
 
 ### Data Types
 ```typescript
@@ -129,6 +134,9 @@ Required for production:
 ## Testing Locally
 
 ```bash
+# Gympie and Richmond council dashboards send incomplete certificate chains; the Docker image
+# sets NODE_EXTRA_CA_CERTS automatically, locally pass it yourself to include those councils
+NODE_EXTRA_CA_CERTS=certs/council-intermediates.pem npm run dev
 npm run dev          # Start dev server
 npm run build        # Production build (generates static gauge pages)
 ```

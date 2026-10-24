@@ -21,7 +21,8 @@ const STATUS_PRIORITY: Record<FloodStatus, number> = {
   warning: 1,
   watch: 2,
   safe: 3,
-  offline: 4,
+  unknown: 4,
+  offline: 5,
 }
 
 export function GaugeListSidebar({
@@ -41,6 +42,7 @@ export function GaugeListSidebar({
       warning: 0,
       watch: 0,
       safe: 0,
+      unknown: 0,
       offline: 0,
     }
     gauges.forEach((gauge) => {
@@ -185,6 +187,11 @@ export function GaugeListSidebar({
           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
             {statusSummary.safe} Safe
           </span>
+          {statusSummary.unknown > 0 && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-sky-100 text-sky-800">
+              {statusSummary.unknown} Level only
+            </span>
+          )}
           {statusSummary.offline > 0 && (
             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700">
               {statusSummary.offline} Offline

@@ -96,6 +96,27 @@ const statusConfig = {
     ),
     description: 'Major flooding, take action now',
   },
+  unknown: {
+    color: 'bg-[#0369a1]',
+    textColor: 'text-white',
+    label: 'Level only',
+    icon: (
+      <svg
+        className="w-full h-full"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="8" y1="12" x2="16" y2="12" />
+      </svg>
+    ),
+    description: 'No official flood levels for this gauge',
+  },
   offline: {
     color: 'bg-[#6b7280]',
     textColor: 'text-white',

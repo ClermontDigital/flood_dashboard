@@ -1,226 +1,90 @@
 import { NextResponse } from 'next/server'
-import sharp from 'sharp'
-import type { FloodCamera, FloodCamerasResponse, FloodDetection } from '@/lib/types'
+import { jsonResponse } from '@/lib/http'
+import type { FloodCamera, FloodCamerasResponse } from '@/lib/types'
+import { createCouncilFeedCache, representativePoint, text, type QitCouncil, type QitFeature } from '@/lib/data-sources/qitplus'
 
-export const revalidate = 300 // Cache for 5 minutes
+// Dynamic so responses can be compressed per request; the in-memory cache below does the caching
+export const dynamic = 'force-dynamic'
 
-// Camera feed sources (both use the same GeoJSON format from Envault platform)
-const CAMERA_SOURCES = [
-  {
-    url: 'https://dashboard.isaac.qld.gov.au/dashboard/getCameras',
-    name: 'Isaac Regional Council',
-    prefix: 'isaac',
-  },
-  {
-    url: 'https://beprepared.chrc.qld.gov.au/dashboard/getCameras',
-    name: 'Central Highlands Regional Council',
-    prefix: 'chrc',
-  },
-]
+// Flood cameras from council disaster dashboards on the QIT Plus ("Guardian IMS") platform.
+// Every council's camera feed uses the same GeoJSON format; the images themselves are hosted
+// by a mix of providers (Envault, Disaster Watch, QLDTraffic's camera server, council buckets…).
+// The council list lives in src/lib/data-sources/qitplus.ts.
 
-interface CameraFeature {
-  type: 'Feature'
-  geometry: { type: 'Point'; coordinates: [number, number] }
-  properties: { id: number; description: string; image_url: string; typeName: string }
-}
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
-interface CamerasResponse {
-  type: 'FeatureCollection'
-  features: CameraFeature[]
-}
-
-// Camera positions to offset so they don't overlap nearby gauge markers
+// Camera positions to offset so they don't overlap nearby gauge markers.
+// Keys are `${council.id}-${camera id}`.
 const POSITION_OFFSETS: Record<string, { lat: number; lng: number }> = {
   'isaac-46': { lat: 0.008, lng: -0.008 },  // Theresa Creek Dam - offset from gauge 130206A
   'chrc-552': { lat: 0.008, lng: -0.008 },  // Theresa Creek Dam (CHRC) - same location
 }
 
-// In-memory cache
+const IMAGE_EXTENSION = /\.(jpe?g|png|gif|webp|bmp)$/i
+const PAGE_EXTENSION = /\.(html?|php|aspx?|jsp)$/i
+// Extension-less image endpoints, e.g. envault.com.au/api?contentUrl=…, usee.com/apiV3/latestimage/…
+const IMAGE_ENDPOINT_HINT = /image|img|photo|snapshot|latest|camera|cam|content|api|media|upload/i
+
+/** Returns the URL if it plausibly points at an image, or null for web pages, junk and blanks. */
+function cleanImageUrl(raw: string): string | null {
+  const candidate = raw.trim().replace(/&amp;/gi, '&')
+  if (!candidate) return null
+
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+
+  // QLDTraffic web pages (camera images live on cameras.qldtraffic.qld.gov.au)
+  const host = url.hostname.toLowerCase()
+  if (/(^|\.)qldtraffic\.qld\.gov\.au$/.test(host) && !host.startsWith('cameras.')) return null
+
+  const path = url.pathname
+  if (PAGE_EXTENSION.test(path)) return null
+  if (IMAGE_EXTENSION.test(path)) return candidate
+  if (IMAGE_ENDPOINT_HINT.test(path + url.search)) return candidate
+  return null
+}
+
+function parseCameras(features: QitFeature[], council: QitCouncil): FloodCamera[] {
+  const cameras: FloodCamera[] = []
+  for (const f of features) {
+    const props = f.properties ?? {}
+    if (!text(props.typeName).toLowerCase().includes('flood camera')) continue
+
+    const id = Number(props.id ?? f.id)
+    if (!Number.isFinite(id)) continue
+
+    const imageUrls = String(props.image_url ?? '')
+      .split(',')
+      .map(cleanImageUrl)
+      .filter((u): u is string => u !== null)
+    if (imageUrls.length === 0) continue
+
+    const point = representativePoint(f.geometry)
+    if (!point) continue
+
+    const offset = POSITION_OFFSETS[`${council.id}-${id}`]
+    cameras.push({
+      id,
+      description: text(props.description) || 'Flood camera',
+      lat: point.lat + (offset?.lat || 0),
+      lng: point.lng + (offset?.lng || 0),
+      imageUrls,
+      source: council.name,
+    })
+  }
+  return cameras
+}
+
+const cameraFeed = createCouncilFeedCache('cameras', parseCameras, { ttlMs: CACHE_TTL })
+
+// Last deduplicated list, keyed by the snapshot it was built from
 let cachedCameras: FloodCamera[] | null = null
 let cacheTimestamp = 0
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-
-// Flood detection thresholds (includes brown + grey-warm pixels)
-// Note: sky, trees, text overlays dilute percentages — even heavily flooded
-// scenes rarely exceed 60% because vegetation/sky fill the upper frame.
-const WATER_PERCENT_POSSIBLE = 20 // >= 20% adjusted score = "possible"
-const WATER_PERCENT_LIKELY = 40   // >= 40% adjusted score = "likely"
-
-// Per-camera baseline offsets: the "normal" water-like pixel % when dry.
-// Subtracted from raw score before applying thresholds.
-// Cameras with roads, bridges, dirt, or concrete score high even without water.
-// Set these during dry conditions; during floods, use your best estimate.
-const CAMERA_BASELINES: Record<string, number> = {
-  'isaac-44': 30,   // Thirty Mile Creek — road + red dirt shoulders
-  'isaac-47': 8,    // Hughes Creek — some vegetation overlap
-  'isaac-665': 8,   // Bee Creek — vegetation
-  'isaac-666': 12,  // Peak Gully — vegetation + dirt
-  'isaac-667': 12,  // Downs Creek — dirt
-  'chrc-293': 8,    // Capella Creek — vegetation
-  'chrc-363': 25,   // Nogoa River (Capricorn Hwy) — bridge + road + cars
-  'chrc-316': 15,   // American Gully — road surface
-}
-
-/**
- * Analyze a camera image for brown/muddy flood water using sharp.
- * Downscales to 80x60 for speed, then counts pixels in the brown/muddy color range.
- * Returns the percentage of pixels that match flood water colors.
- */
-async function analyzeImageForFlood(imageUrl: string): Promise<number> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 8000)
-
-  try {
-    const response = await fetch(imageUrl, { signal: controller.signal })
-    clearTimeout(timeoutId)
-
-    if (!response.ok) return 0
-
-    const buffer = Buffer.from(await response.arrayBuffer())
-
-    // Downscale to 80x60 for fast analysis
-    const { data, info } = await sharp(buffer)
-      .resize(80, 60, { fit: 'fill' })
-      .removeAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
-
-    const totalPixels = info.width * info.height
-    let waterPixels = 0
-
-    // Scan pixels in RGB - look for brown/muddy water tones
-    for (let i = 0; i < data.length; i += 3) {
-      const r = data[i]
-      const g = data[i + 1]
-      const b = data[i + 2]
-
-      // Convert to HSL-ish values for better color detection
-      const max = Math.max(r, g, b)
-      const min = Math.min(r, g, b)
-      const lightness = (max + min) / 2
-
-      // Skip very dark pixels (shadows, night) and very bright (sky, glare)
-      if (lightness < 30 || lightness > 220) continue
-
-      const delta = max - min
-      if (delta === 0) continue // Skip grey pixels
-
-      // Calculate hue
-      let hue = 0
-      if (max === r) hue = ((g - b) / delta) % 6
-      else if (max === g) hue = (b - r) / delta + 2
-      else hue = (r - g) / delta + 4
-      hue = Math.round(hue * 60)
-      if (hue < 0) hue += 360
-
-      // Calculate saturation
-      const saturation = delta / (255 - Math.abs(2 * lightness - 255))
-
-      // Flood water detection covers three pixel types:
-      // 1. Brown/muddy: warm hue (10-55°), any saturation, moderate lightness
-      // 2. Red-brown: hue 345-15°, low sat, warm-biased
-      // 3. Grey-warm: very low color delta but warm-biased (r >= b) — the
-      //    dominant color of silty/turbid flood water in overcast conditions
-
-      // Primary: warm-hued pixels (classic brown muddy water)
-      const isBrownWater = hue >= 10 && hue <= 55 &&
-                           saturation >= 0.03 && saturation <= 0.85 &&
-                           lightness >= 35 && lightness <= 180 &&
-                           r > b
-
-      // Secondary: slightly pink/red muddy tones
-      const isRedBrown = (hue >= 345 || hue <= 15) &&
-                         saturation >= 0.02 && saturation <= 0.3 &&
-                         lightness >= 35 && lightness <= 160 &&
-                         r > b
-
-      if (isBrownWater || isRedBrown) {
-        waterPixels++
-        continue
-      }
-
-      // Grey-warm: very desaturated but warm-toned pixels
-      // Common in turbid/silty water, turbulent spillway foam, overcast floods
-      if (delta <= 20 && r >= b && lightness >= 50 && lightness <= 200) {
-        waterPixels++
-        continue
-      }
-
-      // Sky-reflecting flood water: distant water reflects blue/purple sky
-      // Distinguish from actual sky by capping lightness (sky is brighter)
-      const isReflectiveWater = hue >= 200 && hue <= 270 &&
-                                saturation >= 0.1 && saturation <= 0.6 &&
-                                lightness >= 100 && lightness <= 190
-
-      if (isReflectiveWater) {
-        waterPixels++
-      }
-    }
-
-    return Math.round((waterPixels / totalPixels) * 100)
-  } catch {
-    return 0
-  }
-}
-
-/**
- * Run flood detection on all cameras in parallel (limited concurrency).
- * Analyzes only the first image URL for each camera.
- */
-async function detectFloodForCameras(cameras: FloodCamera[]): Promise<FloodCamera[]> {
-  const CONCURRENCY = 5
-  const results = [...cameras]
-  const analyzedAt = new Date().toISOString()
-
-  for (let i = 0; i < results.length; i += CONCURRENCY) {
-    const batch = results.slice(i, i + CONCURRENCY)
-    const detections = await Promise.allSettled(
-      batch.map(camera => {
-        const url = camera.imageUrls[0]
-        if (!url) return Promise.resolve(0)
-        return analyzeImageForFlood(url)
-      })
-    )
-
-    detections.forEach((result, j) => {
-      const rawPercent = result.status === 'fulfilled' ? result.value : 0
-      const camera = results[i + j]
-      // Look up per-camera baseline using source prefix + id
-      const prefix = camera.source.includes('Isaac') ? 'isaac' : 'chrc'
-      const cameraKey = `${prefix}-${camera.id}`
-      const baseline = CAMERA_BASELINES[cameraKey] || 0
-      const adjustedPercent = Math.max(0, rawPercent - baseline)
-
-      let status: FloodDetection['status'] = 'dry'
-      if (adjustedPercent >= WATER_PERCENT_LIKELY) status = 'likely'
-      else if (adjustedPercent >= WATER_PERCENT_POSSIBLE) status = 'possible'
-
-      results[i + j] = {
-        ...camera,
-        floodDetection: { status, waterPercent: adjustedPercent, analyzedAt },
-      }
-    })
-  }
-
-  return results
-}
-
-function parseFeatures(features: CameraFeature[], sourceName: string, prefix: string): FloodCamera[] {
-  return features
-    .filter(f => f.properties.typeName === 'Flood Camera' && f.properties.image_url)
-    .map(f => {
-      const key = `${prefix}-${f.properties.id}`
-      const offset = POSITION_OFFSETS[key]
-      return {
-        id: f.properties.id,
-        description: f.properties.description.trim(),
-        lat: f.geometry.coordinates[1] + (offset?.lat || 0),
-        lng: f.geometry.coordinates[0] + (offset?.lng || 0),
-        imageUrls: f.properties.image_url.split(',').map(u => u.trim()),
-        source: sourceName,
-      }
-    })
-}
 
 /**
  * Simplify a camera name for fuzzy matching.
@@ -259,6 +123,8 @@ function deduplicateCameras(cameras: FloodCamera[]): FloodCamera[] {
         return false
       }
       const existingSimplified = simplifyName(existing.description)
+      // A name that simplifies to nothing would "match" everything nearby
+      if (!simplified || !existingSimplified) return existing.description.toLowerCase() === camera.description.toLowerCase()
       return existingSimplified.includes(simplified) ||
              simplified.includes(existingSimplified) ||
              existingSimplified === simplified
@@ -271,13 +137,13 @@ function deduplicateCameras(cameras: FloodCamera[]): FloodCamera[] {
   return result
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const now = Date.now()
+    const snapshot = await cameraFeed.get()
 
-    // Return cached data if fresh
-    if (cachedCameras && (now - cacheTimestamp) < CACHE_TTL) {
-      return NextResponse.json({
+    // Same snapshot as last time: serve the already-deduplicated list
+    if (cachedCameras && snapshot.fetchedAt === cacheTimestamp) {
+      return jsonResponse(request, {
         cameras: cachedCameras,
         lastUpdated: new Date(cacheTimestamp).toISOString(),
       } satisfies FloodCamerasResponse, {
@@ -287,55 +153,30 @@ export async function GET() {
       })
     }
 
-    // Fetch all sources in parallel
-    const results = await Promise.allSettled(
-      CAMERA_SOURCES.map(async (source) => {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 10000)
+    const allCameras = snapshot.results.flatMap(r => r.items)
 
-        const response = await fetch(`${source.url}?t=${now}`, {
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' },
-        })
-
-        clearTimeout(timeoutId)
-
-        if (!response.ok) {
-          console.error(`[Cameras] HTTP ${response.status} from ${source.name}`)
-          return []
-        }
-
-        const data: CamerasResponse = await response.json()
-        return parseFeatures(data.features || [], source.name, source.prefix)
-      })
-    )
-
-    // Collect cameras from all successful fetches
-    const allCameras: FloodCamera[] = []
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        allCameras.push(...result.value)
-      } else {
-        console.error('[Cameras] Source fetch failed:', result.reason)
-      }
+    // Every source failed — keep serving the last good list rather than caching nothing
+    if (allCameras.length === 0 && cachedCameras) {
+      console.error('[Cameras] No cameras from any source, serving previous cache')
+      return jsonResponse(request, {
+        cameras: cachedCameras,
+        lastUpdated: new Date(cacheTimestamp).toISOString(),
+      } satisfies FloodCamerasResponse)
     }
 
     // Deduplicate cameras from overlapping council areas
-    const dedupedCameras = deduplicateCameras(allCameras)
+    const cameras = deduplicateCameras(allCameras)
+    const okCount = snapshot.councils.filter(c => c.ok).length
 
-    // Run flood detection analysis on all camera images
-    const cameras = await detectFloodForCameras(dedupedCameras)
-
-    const floodDetected = cameras.filter(c => c.floodDetection?.status !== 'dry')
-    console.log(`[Cameras] Fetched ${cameras.length} flood cameras from ${CAMERA_SOURCES.length} sources (${allCameras.length} before dedup), ${floodDetected.length} with water detected`)
+    console.log(`[Cameras] ${cameras.length} flood cameras from ${okCount}/${snapshot.councils.length} councils (${allCameras.length} before dedup)`)
 
     // Update cache
     cachedCameras = cameras
-    cacheTimestamp = now
+    cacheTimestamp = snapshot.fetchedAt
 
-    return NextResponse.json({
+    return jsonResponse(request, {
       cameras,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: new Date(snapshot.fetchedAt).toISOString(),
     } satisfies FloodCamerasResponse, {
       headers: {
         'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
@@ -344,11 +185,11 @@ export async function GET() {
   } catch (error) {
     console.error('[Cameras] Error fetching cameras:', error)
     if (cachedCameras) {
-      return NextResponse.json({
+      return jsonResponse(request, {
         cameras: cachedCameras,
         lastUpdated: new Date(cacheTimestamp).toISOString(),
       } satisfies FloodCamerasResponse)
     }
-    return NextResponse.json({ cameras: [], lastUpdated: new Date().toISOString() } satisfies FloodCamerasResponse)
+    return jsonResponse(request, { cameras: [], lastUpdated: new Date().toISOString() } satisfies FloodCamerasResponse)
   }
 }

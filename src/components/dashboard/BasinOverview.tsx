@@ -135,7 +135,7 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
       danger: withReadings.filter(g => g.reading?.status === 'danger').length,
     }
     const rising = withReadings.filter(g => g.reading?.trend === 'rising').length
-    const risingSafe = withReadings.filter(g => g.reading?.trend === 'rising' && g.reading?.status === 'safe').length
+    const risingSafe = withReadings.filter(g => g.reading?.trend === 'rising' && (g.reading?.status === 'safe' || g.reading?.status === 'unknown')).length
     const falling = withReadings.filter(g => g.reading?.trend === 'falling').length
 
     return { total: gauges.length, active: withReadings.length, statusCounts, rising, risingSafe, falling }

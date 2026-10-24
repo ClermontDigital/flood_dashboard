@@ -7,6 +7,7 @@
  */
 
 import { NextResponse, NextRequest } from 'next/server'
+import { isCronAuthorized } from '@/lib/cron-auth'
 import { GAUGE_STATIONS } from '@/lib/constants'
 import { getDb } from '@/lib/firestore'
 import type { DailyUptimeStat } from '@/lib/types'
@@ -121,9 +122,6 @@ function detectReportingInterval(traceData: WMIPTracePoint[]): number {
   return DEFAULT_INTERVAL_MINUTES
 }
 
-// Cron secret for authentication
-const CRON_SECRET = process.env.CRON_SECRET
-
 interface WMIPTracePoint {
   v: string  // value
   t: number  // timestamp (format: YYYYMMDDHHmmss)
@@ -142,21 +140,7 @@ interface WMIPVariable {
  * Verify the request is authorized
  */
 function isAuthorized(request: NextRequest): boolean {
-  const cronSecret = request.headers.get('x-cron-secret')
-  if (cronSecret && CRON_SECRET && cronSecret === CRON_SECRET) {
-    return true
-  }
-
-  if (!CRON_SECRET && process.env.NODE_ENV === 'development') {
-    return true
-  }
-
-  const userAgent = request.headers.get('user-agent') || ''
-  if (userAgent.includes('Google-Cloud-Scheduler')) {
-    return true
-  }
-
-  return false
+  return isCronAuthorized(request)
 }
 
 /**

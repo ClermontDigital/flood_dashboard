@@ -1,5 +1,7 @@
 // Flood status levels
-export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'offline'
+// safe/watch/warning/danger map to below minor / minor / moderate / major flood level.
+// 'unknown' means the gauge reports a level but has no official flood levels to compare against.
+export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'unknown' | 'offline'
 
 // Trend indicators
 export type Trend = 'rising' | 'falling' | 'stable'
@@ -255,8 +257,9 @@ export interface RoadEvent {
   startTime?: string
   endTime?: string
   severity: 'low' | 'medium' | 'high' | 'extreme'
-  source: 'qldtraffic'
-  sourceUrl: string // Link to verify on QLDTraffic
+  source: 'qldtraffic' | 'council'
+  council?: string // Council name when source is 'council'
+  sourceUrl: string // Link to verify on QLDTraffic or the council disaster dashboard
   lastUpdated: string
 }
 
@@ -267,13 +270,6 @@ export interface RoadEventsResponse {
   sourceUrl: string // Main QLDTraffic URL for verification
 }
 
-// Flood detection result from image analysis
-export interface FloodDetection {
-  status: 'dry' | 'possible' | 'likely'
-  waterPercent: number // 0-100 percentage of brown/muddy water pixels
-  analyzedAt: string   // ISO timestamp
-}
-
 // Flood camera from council dashboard
 export interface FloodCamera {
   id: number
@@ -282,7 +278,6 @@ export interface FloodCamera {
   lng: number
   imageUrls: string[]
   source: string
-  floodDetection?: FloodDetection
 }
 
 export interface FloodCamerasResponse {
@@ -311,4 +306,108 @@ export interface GaugeUptimeSummary {
     rollingUptime7d: number
     lastReportTimestamp: string | null
   }
+}
+
+// ---- Council disaster dashboards (QIT Plus "Guardian" platform) ----
+
+// Per-council fetch outcome, so a dead feed is visible rather than looking like "nothing to report"
+export interface CouncilFeedStatus {
+  council: string
+  ok: boolean
+  count: number
+  error?: string
+}
+
+// Road closures entered by council staff (merged with QLDTraffic on the map)
+export interface CouncilRoadsResponse {
+  events: RoadEvent[] // source: 'council'
+  councils: CouncilFeedStatus[]
+  lastUpdated: string
+}
+
+// Evacuation centres, sandbag points and other active centres
+export interface ActiveCentre {
+  id: string
+  council: string
+  name: string
+  type: string        // e.g. 'Evacuation Centre', 'Sandbag Collection Point'
+  status: string      // e.g. 'Open', 'Available', 'Closed'
+  isOpen: boolean
+  address?: string
+  note?: string
+  organisation?: string
+  lat: number
+  lng: number
+  lastUpdated?: string
+  sourceUrl: string   // Council disaster dashboard
+}
+
+export interface ActiveCentresResponse {
+  centres: ActiveCentre[]
+  councils: CouncilFeedStatus[]
+  lastUpdated: string
+}
+
+// Council-run water level sensors (creeks, floodways) with their own thresholds
+export type CouncilSensorStatus = 'normal' | 'over_road' | 'minor' | 'moderate' | 'major' | 'nodata'
+
+export interface CouncilSensor {
+  id: string
+  council: string
+  name: string
+  lat: number
+  lng: number
+  level: number | null       // metres, latest reading
+  timestamp: string | null   // ISO, latest reading
+  roadLevel: number | null   // level at which water is over the road/floodway, if published
+  thresholds: FloodThresholds | null
+  status: CouncilSensorStatus
+  history: { timestamp: string; level: number }[] // ~last 24 hours, oldest first, for a sparkline
+  sourceUrl: string
+}
+
+export interface CouncilSensorsResponse {
+  sensors: CouncilSensor[]
+  councils: CouncilFeedStatus[]
+  lastUpdated: string
+}
+
+// Fuel availability (statewide ArcGIS layer)
+export type FuelSiteStatus = 'available' | 'partial' | 'unavailable' | 'unknown'
+
+export interface FuelSite {
+  id: string
+  name: string
+  brand?: string
+  address?: string
+  lat: number
+  lng: number
+  status: FuelSiteStatus
+  fuels: { type: string; available: boolean | null; price: number | null }[]
+  lastUpdated?: string
+}
+
+export interface FuelResponse {
+  sites: FuelSite[]
+  lastUpdated: string
+  sourceUrl: string
+}
+
+// Council flood-extent maps: the area expected to flood at a given gauge height (planning maps, not live)
+export interface FloodExtentLevel {
+  level: number    // gauge height in metres
+  tileUrl: string  // Leaflet tile template, e.g. https://.../MapServer/tile/{z}/{y}/{x}
+}
+
+export interface FloodExtentSet {
+  id: string
+  town: string
+  river: string
+  gaugeName: string          // The gauge the levels refer to, e.g. 'Fitzroy River at Rockhampton'
+  gaugeId?: string           // GAUGE_STATIONS id when we track that gauge
+  council: string
+  center: [number, number]
+  zoom: number
+  levels: FloodExtentLevel[]
+  sourceUrl: string
 }

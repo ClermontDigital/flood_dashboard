@@ -3,10 +3,11 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import useSWR from 'swr'
-import { QLD_CENTER, STATUS_LABELS, REFRESH_INTERVAL } from '@/lib/constants'
+import { QLD_CENTER, STATUS_LABELS, REFRESH_INTERVAL, resolveGaugeId } from '@/lib/constants'
 import Image from 'next/image'
 import Link from 'next/link'
-import type { GaugeData, WaterLevelsResponse, FloodWarning, HistoryPoint, FloodThresholds, GaugeStation, RoadEventsResponse, GaugeUptimeData, FloodCamera, FloodCamerasResponse } from '@/lib/types'
+import type { GaugeData, WaterLevelsResponse, FloodWarning, HistoryPoint, FloodThresholds, GaugeStation, RoadEventsResponse, GaugeUptimeData, FloodCamera, FloodCamerasResponse, CouncilRoadsResponse, ActiveCentresResponse, CouncilSensorsResponse, FuelResponse } from '@/lib/types'
+import { FLOOD_EXTENT_SETS } from '@/lib/flood-extents'
 import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Loading placeholder component
@@ -41,7 +42,12 @@ import BasinOverview from '@/components/dashboard/BasinOverview'
 import type { RainfallSummary, StateRainfallSummary } from '@/lib/data-sources/rainfall'
 import type { BOMObservation } from '@/lib/data-sources/bom-weather'
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json())
+// Throw on HTTP errors so SWR keeps the last good data instead of treating an error body as data
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${res.status} from ${url}`)
+  return res.json()
+}
 
 // Type for gauge detail response
 interface GaugeDetailResponse {
@@ -81,6 +87,11 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
   const [showDams, setShowDams] = useState<boolean>(true)
   const [showRainRadar, setShowRainRadar] = useState<boolean>(true)
   const [showCameras, setShowCameras] = useState<boolean>(true)
+  const [showSensors, setShowSensors] = useState<boolean>(true)
+  const [showCentres, setShowCentres] = useState<boolean>(true)
+  const [showFuel, setShowFuel] = useState<boolean>(false)
+  const [floodExtentChoice, setFloodExtentChoice] = useState<string>('') // `${setId}:${level}` or ''
+  const [mapFocus, setMapFocus] = useState<{ lat: number; lng: number; zoom: number; key: number } | null>(null)
 
   // Ref for gauge details section to scroll to
   const gaugeDetailsRef = useRef<HTMLDivElement>(null)
@@ -102,8 +113,9 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
     // Restore from localStorage for the root page
     const stored = getLocalStorage<string | null>('lastSelectedGauge', null)
     if (stored) {
-      setSelectedGaugeId(stored)
-      prevSelectedGaugeId.current = stored
+      const id = resolveGaugeId(stored)
+      setSelectedGaugeId(id)
+      prevSelectedGaugeId.current = id
     }
     hasMounted.current = true
   }, [initialGaugeId])
@@ -223,6 +235,43 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
     { refreshInterval: REFRESH_INTERVAL }
   )
 
+  // Council disaster dashboard feeds
+  const { data: councilRoadsData } = useSWR<CouncilRoadsResponse>('/api/council-roads', fetcher, { refreshInterval: REFRESH_INTERVAL })
+  const { data: centresData } = useSWR<ActiveCentresResponse>('/api/evac-centres', fetcher, { refreshInterval: REFRESH_INTERVAL })
+  const { data: sensorsData } = useSWR<CouncilSensorsResponse>('/api/council-sensors', fetcher, { refreshInterval: REFRESH_INTERVAL })
+  // Fuel is ~1,800 sites, so only fetch it while the layer is on
+  const { data: fuelData } = useSWR<FuelResponse>(showFuel ? '/api/fuel' : null, fetcher, { refreshInterval: REFRESH_INTERVAL })
+
+  // QLDTraffic events plus closures entered by councils. QLDTraffic republishes some council
+  // items, so drop a QLDTraffic event when a council event on the same road is within ~300 m.
+  const allRoadEvents = useMemo(() => {
+    // Hide council items that haven't started yet, judged against when the feed was fetched
+    const fetchedAt = councilRoadsData ? new Date(councilRoadsData.lastUpdated).getTime() : 0
+    const council = (councilRoadsData?.events || []).filter(
+      (e) => !e.startTime || new Date(e.startTime).getTime() <= fetchedAt
+    )
+    const sameRoad = (a: string, b: string) => {
+      const x = a.toLowerCase().trim()
+      const y = b.toLowerCase().trim()
+      return !!x && !!y && (x.includes(y) || y.includes(x))
+    }
+    const qld = (roadClosuresData?.events || []).filter(
+      (q) => !council.some((c) => sameRoad(c.road, q.road) && calculateDistance(c.lat, c.lng, q.lat, q.lng) < 0.3)
+    )
+    return [...qld, ...council]
+  }, [roadClosuresData?.events, councilRoadsData])
+  // "Available" means on standby; only count centres that are actually open
+  const openCentres = centresData?.centres?.filter((c) => /open|active/i.test(c.status)) || []
+  const fuelProblemCount = fuelData?.sites?.filter((s) => s.status === 'partial' || s.status === 'unavailable').length || 0
+
+  const floodExtent = useMemo(() => {
+    if (!floodExtentChoice) return null
+    const [setId, levelStr] = floodExtentChoice.split(':')
+    const set = FLOOD_EXTENT_SETS.find((s) => s.id === setId)
+    const level = set?.levels.find((l) => String(l.level) === levelStr)
+    return set && level ? { set, level } : null
+  }, [floodExtentChoice])
+
   // All gauges
   const allGauges = waterLevels?.gauges || []
 
@@ -266,9 +315,13 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
   )
 
   // Handle location search selection
-  const handleSearchSelect = useCallback((result: { lat: number; lng: number; id?: string }) => {
+  const handleSearchSelect = useCallback((result: { type: string; lat: number; lng: number; id?: string }) => {
     setMapCenter([result.lat, result.lng])
-    if (result.id && !result.id.startsWith('addr-')) {
+    // Always zoom to the result, even if it's the gauge that's already selected
+    const zoom = result.type === 'gauge' ? 12 : result.type === 'town' ? 11 : 9
+    setMapFocus({ lat: result.lat, lng: result.lng, zoom, key: Date.now() })
+    // Only gauge results select a gauge; towns and rivers just move the map
+    if (result.type === 'gauge' && result.id) {
       setSelectedGaugeId(result.id)
       setSearchedLocation(null)
     }
@@ -396,12 +449,20 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                   onSelectGauge={handleGaugeSelect}
                   center={mapCenter}
                   searchedLocation={searchedLocation}
-                  roadEvents={roadClosuresData?.events}
+                  roadEvents={allRoadEvents}
                   showRoadClosures={showRoadClosures}
                   showDams={showDams}
                   showRainRadar={showRainRadar}
                   cameras={camerasData?.cameras}
                   showCameras={showCameras}
+                  sensors={sensorsData?.sensors}
+                  showSensors={showSensors}
+                  centres={centresData?.centres}
+                  showCentres={showCentres}
+                  fuelSites={fuelData?.sites}
+                  showFuel={showFuel}
+                  floodExtent={floodExtent}
+                  focus={mapFocus}
                 />
               </div>
 
@@ -428,9 +489,9 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                       />
                     </button>
                     <span className="text-xs font-medium text-gray-700">Roads</span>
-                    {roadClosuresData?.events && roadClosuresData.events.length > 0 && (
+                    {allRoadEvents.length > 0 && (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                        {roadClosuresData.events.length}
+                        {allRoadEvents.length}
                       </span>
                     )}
                   </div>
@@ -505,6 +566,111 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                       </span>
                     )}
                   </div>
+
+                  {/* Water Sensors Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowSensors(!showSensors)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showSensors ? 'bg-sky-600' : 'bg-gray-200'
+                      )}
+                      role="switch"
+                      aria-checked={showSensors}
+                      aria-label="Show council water level sensors on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showSensors ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Water Sensors</span>
+                    {sensorsData?.sensors && sensorsData.sensors.length > 0 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-800">
+                        {sensorsData.sensors.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Evac Centres Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowCentres(!showCentres)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showCentres ? 'bg-green-600' : 'bg-gray-200'
+                      )}
+                      role="switch"
+                      aria-checked={showCentres}
+                      aria-label="Show evacuation centres and sandbag points on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showCentres ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Evac Centres</span>
+                    {openCentres.length > 0 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        {openCentres.length} open
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Fuel Toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowFuel(!showFuel)}
+                      className={cn(
+                        'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                        showFuel ? 'bg-amber-600' : 'bg-gray-200'
+                      )}
+                      role="switch"
+                      aria-checked={showFuel}
+                      aria-label="Show fuel availability on map"
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          showFuel ? 'translate-x-4' : 'translate-x-0'
+                        )}
+                      />
+                    </button>
+                    <span className="text-xs font-medium text-gray-700">Fuel</span>
+                    {showFuel && fuelProblemCount > 0 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                        {fuelProblemCount} low
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Council flood-extent maps */}
+                  {FLOOD_EXTENT_SETS.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="flood-map-select" className="text-xs font-medium text-gray-700">Flood maps</label>
+                      <select
+                        id="flood-map-select"
+                        value={floodExtentChoice}
+                        onChange={(e) => setFloodExtentChoice(e.target.value)}
+                        className="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Off</option>
+                        {FLOOD_EXTENT_SETS.map((set) => (
+                          <optgroup key={set.id} label={`${set.town} (${set.river})`}>
+                            {set.levels.map((l) => (
+                              <option key={l.level} value={`${set.id}:${l.level}`}>
+                                {set.town} at {l.level} m
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {/* Source Links */}
                   <div className="flex items-center gap-3 ml-auto text-xs text-gray-500">
@@ -757,6 +923,47 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                                 <span className="opacity-60">WMIP</span>
                               </div>
                             </a>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Council flood maps keyed to this gauge's height */}
+                    {(() => {
+                      const extentSet = FLOOD_EXTENT_SETS.find((set) => set.gaugeId === selectedGaugeId)
+                      if (!extentSet) return null
+                      const level = selectedGaugeBasic.reading!.level
+                      const nextMapped = extentSet.levels.find((l) => l.level >= level)
+                      return (
+                        <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                          <div className="text-xs text-blue-600 font-medium uppercase">Flood maps</div>
+                          <p className="text-sm text-gray-700 mt-1">
+                            Area {extentSet.council} expects to flood at each height on this gauge. Planning maps, not live flooding.
+                          </p>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {extentSet.levels.map((l) => {
+                              const value = `${extentSet.id}:${l.level}`
+                              const active = floodExtentChoice === value
+                              return (
+                                <button
+                                  key={l.level}
+                                  onClick={() => setFloodExtentChoice(active ? '' : value)}
+                                  aria-pressed={active}
+                                  className={cn(
+                                    'px-3 py-1 rounded-full text-xs font-medium border transition-colors',
+                                    active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-100',
+                                    !active && nextMapped?.level === l.level && 'ring-2 ring-blue-400'
+                                  )}
+                                >
+                                  {l.level} m
+                                </button>
+                              )
+                            })}
+                          </div>
+                          {nextMapped && (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Now {level.toFixed(2)} m. The outlined map ({nextMapped.level} m) is the next mapped height.
+                            </p>
                           )}
                         </div>
                       )

@@ -1,5 +1,6 @@
 import { Metadata } from 'next'
-import { GAUGE_STATIONS } from '@/lib/constants'
+import { notFound } from 'next/navigation'
+import { GAUGE_STATIONS, resolveGaugeId } from '@/lib/constants'
 import DashboardClient from './DashboardClient'
 
 interface Props {
@@ -8,7 +9,7 @@ interface Props {
 
 // Generate dynamic metadata for OpenGraph based on gauge ID
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params
+  const id = resolveGaugeId((await params).id)
   const gauge = GAUGE_STATIONS.find(g => g.id === id)
 
   if (!gauge) {
@@ -49,6 +50,7 @@ export async function generateStaticParams() {
 
 // Render dashboard with the gauge pre-selected (no redirect - preserves OG tags for crawlers)
 export default async function GaugePage({ params }: Props) {
-  const { id } = await params
+  const id = resolveGaugeId((await params).id)
+  if (!GAUGE_STATIONS.some(g => g.id === id)) notFound()
   return <DashboardClient initialGaugeId={id} />
 }

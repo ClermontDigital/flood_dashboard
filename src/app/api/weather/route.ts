@@ -8,7 +8,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchBOMWeather, type BOMObservation } from '@/lib/data-sources'
 
-export const revalidate = 300 // Cache for 5 minutes
+export const dynamic = 'force-dynamic'
+
+// Reads the query string, so Next can't cache it; keep a short in-memory cache per ~1 km area
+// so repeat visits don't each wait on Open-Meteo
+const CACHE_TTL_MS = 10 * 60 * 1000
+const MAX_CACHE_ENTRIES = 500
+const weatherCache = new Map<string, { at: number; data: BOMObservation }>()
 
 interface WeatherResponse {
   success: boolean
@@ -24,7 +30,23 @@ export async function GET(request: NextRequest): Promise<NextResponse<WeatherRes
     const lng = parseFloat(searchParams.get('lng') || '148.5')
     const name = searchParams.get('name') || 'Queensland'
 
+    const key = `${lat.toFixed(2)},${lng.toFixed(2)},${name}`
+    const cached = weatherCache.get(key)
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      return NextResponse.json({
+        success: true,
+        data: cached.data,
+        timestamp: new Date(cached.at).toISOString(),
+      }, {
+        headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' },
+      })
+    }
+
     const result = await fetchBOMWeather(lat, lng, name)
+    if (result.success && result.data) {
+      if (weatherCache.size >= MAX_CACHE_ENTRIES) weatherCache.clear()
+      weatherCache.set(key, { at: Date.now(), data: result.data })
+    }
 
     if (!result.success || !result.data) {
       return NextResponse.json({

@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
 import L from 'leaflet'
-import type { GaugeData, FloodStatus, RiverSystem, RoadEvent, DamStation, FloodCamera, FloodDetection } from '@/lib/types'
+import type { GaugeData, FloodStatus, RiverSystem, RoadEvent, DamStation, FloodCamera, CouncilSensor, ActiveCentre, FuelSite, FloodExtentSet, FloodExtentLevel } from '@/lib/types'
+import { CouncilSensorMarkers, ActiveCentreMarkers, FuelLayer, FloodExtentLayer } from './CouncilLayers'
 import { CLERMONT_CENTER, STATUS_COLORS, STATUS_LABELS, DEFAULT_ZOOM, MAP_LAYERS, MapLayerType, RIVER_PATHS, RIVER_SYSTEM_NAMES, DAM_STATIONS, RAINVIEWER_CONFIG } from '@/lib/constants'
-import { cn, formatLevel, getTrendArrow, getLocalStorage, setLocalStorage } from '@/lib/utils'
+import { cn, formatLevel, formatTimeSince, getTrendArrow, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Fix Leaflet default icon issue with Next.js
 import 'leaflet/dist/leaflet.css'
@@ -22,6 +23,29 @@ interface FloodMapProps {
   showRainRadar?: boolean
   cameras?: FloodCamera[]
   showCameras?: boolean
+  sensors?: CouncilSensor[]
+  showSensors?: boolean
+  centres?: ActiveCentre[]
+  showCentres?: boolean
+  fuelSites?: FuelSite[]
+  showFuel?: boolean
+  floodExtent?: { set: FloodExtentSet; level: FloodExtentLevel } | null
+  focus?: MapFocus | null
+}
+
+// An explicit "show me this place" request (e.g. a search result). The key changes on every
+// request so picking the same gauge again still moves the map.
+export interface MapFocus {
+  lat: number
+  lng: number
+  zoom: number
+  key: number
+}
+
+// Council road items nobody has touched in a month are often long-running works or forgotten entries
+const COUNCIL_EVENT_STALE_MS = 30 * 24 * 60 * 60 * 1000
+function isStaleCouncilEvent(event: RoadEvent): boolean {
+  return event.source === 'council' && Date.now() - new Date(event.lastUpdated).getTime() > COUNCIL_EVENT_STALE_MS
 }
 
 // Create custom colored markers for different status levels
@@ -209,49 +233,50 @@ function createDamIcon(isOffline: boolean = false): L.DivIcon {
   })
 }
 
-// Create flood camera icon
-const FLOOD_DETECTION_COLORS: Record<FloodDetection['status'], string> = {
-  dry: '#7c3aed',      // Purple (default)
-  possible: '#f59e0b', // Amber
-  likely: '#ef4444',    // Red
+// Camera still image; some council feeds point at hosts that are down or have expired links
+function CameraImage({ src, alt, onClick }: { src: string; alt: string; onClick: () => void }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div className="w-full rounded mb-1 bg-gray-100 text-gray-500 text-xs p-4 text-center">
+        Camera image unavailable right now
+      </div>
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      className="w-full rounded mb-1 cursor-pointer hover:opacity-90 transition-opacity"
+      style={{ maxHeight: '200px', objectFit: 'cover' }}
+      loading="lazy"
+      onClick={onClick}
+      onError={() => setFailed(true)}
+      title="Click to enlarge"
+    />
+  )
 }
 
-function createCameraIcon(floodStatus?: FloodDetection['status']): L.DivIcon {
-  const color = FLOOD_DETECTION_COLORS[floodStatus || 'dry']
-  const pulse = floodStatus === 'likely' ? `
-    <div style="
-      position: absolute;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background-color: ${color};
-      opacity: 0.4;
-      animation: cameraPulse 2s ease-in-out infinite;
-    "></div>
-  ` : ''
-
+// Create flood camera icon
+function createCameraIcon(): L.DivIcon {
   return L.divIcon({
     className: 'camera-marker',
     html: `
-      <div style="position: relative; display: flex; align-items: center; justify-content: center;">
-        ${pulse}
-        <div style="
-          width: 28px;
-          height: 28px;
-          background-color: ${color};
-          border: 3px solid white;
-          border-radius: 50%;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          position: relative;
-          z-index: 1;
-        ">
-          <svg viewBox="0 0 24 24" fill="white" style="width: 16px; height: 16px;">
-            <path d="M12 15.2c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm8-10.2h-3.2l-1.8-2h-6l-1.8 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm-8 13c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5z"/>
-          </svg>
-        </div>
+      <div style="
+        width: 28px;
+        height: 28px;
+        background-color: #7c3aed;
+        border: 3px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <svg viewBox="0 0 24 24" fill="white" style="width: 16px; height: 16px;">
+          <path d="M12 15.2c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm8-10.2h-3.2l-1.8-2h-6l-1.8 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm-8 13c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5z"/>
+        </svg>
       </div>
     `,
     iconSize: [28, 28],
@@ -347,44 +372,66 @@ function RainRadarLayer({ enabled }: { enabled: boolean }) {
 }
 
 // Component to handle map view changes - only flies when values actually change
-function MapController({ center, selectedGaugeId, gauges, searchedLocation }: {
+function MapController({ center, selectedGaugeId, gauges, searchedLocation, focus }: {
   center?: [number, number]
   selectedGaugeId?: string
   gauges: GaugeData[]
   searchedLocation?: { lat: number; lng: number; name: string } | null
+  focus?: MapFocus | null
 }) {
   const map = useMap()
   const prevGaugeId = useRef<string | undefined>(undefined)
   const prevSearchLat = useRef<number | undefined>(searchedLocation?.lat)
   const prevCenter = useRef<[number, number] | undefined>(undefined)
+  const prevFocusKey = useRef<number | undefined>(undefined)
 
   useEffect(() => {
+    // Every branch records all current values, so a change handled here (e.g. a centre set
+    // alongside a selection) isn't replayed later at the statewide zoom
+
+    // Explicit requests (search results) always move the map, even to the selected gauge
+    if (focus && focus.key !== prevFocusKey.current) {
+      prevFocusKey.current = focus.key
+      prevGaugeId.current = selectedGaugeId
+      prevSearchLat.current = searchedLocation?.lat
+      prevCenter.current = center
+      map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom), { duration: 0.5 })
+      return
+    }
+
     // Only fly to search location when it actually changes
     if (searchedLocation && searchedLocation.lat !== prevSearchLat.current) {
       prevSearchLat.current = searchedLocation.lat
+      prevCenter.current = center
       map.flyTo([searchedLocation.lat, searchedLocation.lng], 14, { duration: 0.5 })
       return
     }
 
-    // Only fly to gauge when the selected gauge ID changes
+    // Only fly to gauge when the selected gauge ID changes (and the gauge list has it)
     if (selectedGaugeId && selectedGaugeId !== prevGaugeId.current) {
-      prevGaugeId.current = selectedGaugeId
       const gauge = gauges.find(g => g.station.id === selectedGaugeId)
       if (gauge) {
+        prevGaugeId.current = selectedGaugeId
+        prevCenter.current = center
         map.flyTo([gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), { duration: 0.5 })
+        return
       }
-      return
     }
 
-    // Only fly to center when it actually changes (not same coords)
+    // Only fly to center when it actually changes (not same coords). Skip it when the centre
+    // is just the selected gauge's position, which we've already zoomed in on.
     if (center && (!prevCenter.current || center[0] !== prevCenter.current[0] || center[1] !== prevCenter.current[1])) {
       prevCenter.current = center
-      map.flyTo(center, DEFAULT_ZOOM, { duration: 0.5 })
+      const selected = selectedGaugeId ? gauges.find(g => g.station.id === selectedGaugeId) : undefined
+      const atSelectedGauge = selected && selected.station.lat === center[0] && selected.station.lng === center[1]
+      if (!atSelectedGauge) {
+        map.flyTo(center, DEFAULT_ZOOM, { duration: 0.5 })
+      }
     }
 
     prevGaugeId.current = selectedGaugeId
     prevSearchLat.current = searchedLocation?.lat
-  }, [center, selectedGaugeId, gauges, map, searchedLocation])
+  }, [center, selectedGaugeId, gauges, map, searchedLocation, focus])
 
   return null
 }
@@ -420,7 +467,7 @@ function MapLayerToggle({
   )
 }
 
-function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true }: FloodMapProps) {
+function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true, sensors = [], showSensors = true, centres = [], showCentres = true, fuelSites = [], showFuel = false, floodExtent = null, focus = null }: FloodMapProps) {
   const mapCenter = center || CLERMONT_CENTER
   const [mapLayer, setMapLayer] = useState<MapLayerType>(() =>
     getLocalStorage<MapLayerType>('mapLayer', 'satellite')
@@ -447,11 +494,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
   }), [])
 
   // Memoize camera icon
-  const cameraIcons = useMemo(() => ({
-    dry: createCameraIcon('dry'),
-    possible: createCameraIcon('possible'),
-    likely: createCameraIcon('likely'),
-  }), [])
+  const cameraIcon = useMemo(() => createCameraIcon(), [])
 
   // Memoize road event icons
   const roadEventIcons = useMemo(() => {
@@ -467,7 +510,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
 
   // Memoize icons to prevent recreation on each render
   const icons = useMemo(() => {
-    const statusTypes: FloodStatus[] = ['safe', 'watch', 'warning', 'danger', 'offline']
+    const statusTypes: FloodStatus[] = ['safe', 'watch', 'warning', 'danger', 'unknown', 'offline']
     const normalIcons: Record<FloodStatus, L.DivIcon> = {} as Record<FloodStatus, L.DivIcon>
     const selectedIcons: Record<FloodStatus, L.DivIcon> = {} as Record<FloodStatus, L.DivIcon>
 
@@ -507,6 +550,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
           selectedGaugeId={selectedGaugeId}
           gauges={gauges}
           searchedLocation={searchedLocation}
+          focus={focus}
         />
 
         {/* Rain radar overlay */}
@@ -516,7 +560,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
         {(Object.entries(RIVER_PATHS) as [RiverSystem, [number, number][]][]).map(([riverSystem, path]) => {
           // Find the worst status for this river system
           const riverGauges = gauges.filter(g => g.station.riverSystem === riverSystem)
-          const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3, offline: 4 }
+          const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3, unknown: 4, offline: 5 }
 
           const worstStatus = riverGauges.reduce<FloodStatus>((worst, gauge) => {
             const status = gauge.reading?.status || 'safe'
@@ -551,7 +595,8 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                       worstStatus === 'safe' && 'bg-green-100 text-green-800',
                       worstStatus === 'watch' && 'bg-yellow-100 text-yellow-800',
                       worstStatus === 'warning' && 'bg-orange-100 text-orange-800',
-                      worstStatus === 'danger' && 'bg-red-100 text-red-800'
+                      worstStatus === 'danger' && 'bg-red-100 text-red-800',
+                      worstStatus === 'unknown' && 'bg-sky-100 text-sky-800'
                     )}
                   >
                     {STATUS_LABELS[worstStatus].label}
@@ -655,7 +700,8 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                           status === 'safe' && 'bg-green-100 text-green-800',
                           status === 'watch' && 'bg-yellow-100 text-yellow-800',
                           status === 'warning' && 'bg-orange-100 text-orange-800',
-                          status === 'danger' && 'bg-red-100 text-red-800'
+                          status === 'danger' && 'bg-red-100 text-red-800',
+                          status === 'unknown' && 'bg-sky-100 text-sky-800'
                         )}
                       >
                         {STATUS_LABELS[status].label}
@@ -732,6 +778,8 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
               key={event.id}
               position={[event.lat, event.lng]}
               icon={icon}
+              title={`${eventTypeLabels[event.type]}: ${event.road}`}
+              opacity={isStaleCouncilEvent(event) ? 0.55 : 1}
             >
               <Popup>
                 <div className="min-w-[220px] p-1">
@@ -767,17 +815,27 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                     </p>
                   )}
 
+                  {event.source === 'council' && (
+                    <p className={cn('text-xs mb-2', isStaleCouncilEvent(event) ? 'text-amber-700 font-medium' : 'text-gray-500')}>
+                      Last updated by council {formatTimeSince(event.lastUpdated)}
+                      {isStaleCouncilEvent(event) && ' — check it is still current'}
+                    </p>
+                  )}
+
                   <div className="pt-2 border-t border-gray-100">
                     <p className="text-xs text-gray-500 mb-1">
-                      Source: QLDTraffic
+                      Source: {event.source === 'council' ? `${event.council} disaster dashboard` : 'QLDTraffic'}
                     </p>
+                    {event.source === 'council' && (
+                      <p className="text-xs text-gray-400 mb-1">Council information may be out of date.</p>
+                    )}
                     <a
                       href={event.sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-blue-600 hover:underline flex items-center gap-1"
                     >
-                      Verify on QLDTraffic
+                      {event.source === 'council' ? 'View on council dashboard' : 'Verify on QLDTraffic'}
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                       </svg>
@@ -850,13 +908,11 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
 
         {/* Flood camera markers */}
         {showCameras && cameras.map((camera) => {
-          const detection = camera.floodDetection
-          const detectionStatus = detection?.status || 'dry'
           return (
             <Marker
               key={`camera-${camera.source}-${camera.id}`}
               position={[camera.lat, camera.lng]}
-              icon={cameraIcons[detectionStatus]}
+              icon={cameraIcon}
             >
               <Popup maxWidth={360} minWidth={280} autoPanPadding={[50, 50]}>
                 <div className="p-1">
@@ -869,40 +925,17 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                     </h3>
                   </div>
 
-                  {detection && (
-                    <div className={cn(
-                      'flex items-center gap-2 px-2 py-1 rounded text-xs font-medium mb-2',
-                      detectionStatus === 'likely' && 'bg-red-100 text-red-800',
-                      detectionStatus === 'possible' && 'bg-amber-100 text-amber-800',
-                      detectionStatus === 'dry' && 'bg-green-100 text-green-800',
-                    )}>
-                      <span className={cn(
-                        'w-2 h-2 rounded-full flex-shrink-0',
-                        detectionStatus === 'likely' && 'bg-red-500',
-                        detectionStatus === 'possible' && 'bg-amber-500',
-                        detectionStatus === 'dry' && 'bg-green-500',
-                      )} />
-                      {detectionStatus === 'likely' && 'Flood water likely'}
-                      {detectionStatus === 'possible' && 'Possible flood water'}
-                      {detectionStatus === 'dry' && 'No flood water detected'}
-                    </div>
-                  )}
-
                   {camera.imageUrls.map((url, i) => {
                     const imgSrc = `${url}${url.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`
                     return (
-                      <img
+                      <CameraImage
                         key={i}
                         src={imgSrc}
                         alt={camera.description}
-                        className="w-full rounded mb-1 cursor-pointer hover:opacity-90 transition-opacity"
-                        style={{ maxHeight: '200px', objectFit: 'cover' }}
-                        loading="lazy"
                         onClick={() => {
                           const allUrls = camera.imageUrls.map(u => `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`)
                           setExpandedImage({ urls: allUrls, index: i, title: camera.description })
                         }}
-                        title="Click to enlarge"
                       />
                     )
                   })}
@@ -915,6 +948,18 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
             </Marker>
           )
         })}
+
+        {/* Council flood-extent map for the chosen gauge height */}
+        {floodExtent && <FloodExtentLayer set={floodExtent.set} level={floodExtent.level} />}
+
+        {/* Council water level sensors */}
+        {showSensors && <CouncilSensorMarkers sensors={sensors} />}
+
+        {/* Evacuation centres, sandbag points */}
+        {showCentres && <ActiveCentreMarkers centres={centres} />}
+
+        {/* Fuel availability */}
+        {showFuel && <FuelLayer sites={fuelSites} />}
 
       </MapContainer>
 

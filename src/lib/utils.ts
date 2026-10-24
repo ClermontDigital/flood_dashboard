@@ -10,12 +10,37 @@ export function cn(...inputs: ClassValue[]) {
 
 // Calculate flood status based on water level and thresholds
 export function calculateStatus(level: number, thresholds: FloodThresholds | null): FloodStatus {
-  if (!thresholds) return 'safe'
+  // Without official flood levels we can't classify the reading — never call it safe
+  if (!thresholds) return 'unknown'
 
   if (level >= thresholds.major) return 'danger'
   if (level >= thresholds.moderate) return 'warning'
   if (level >= thresholds.minor) return 'watch'
   return 'safe'
+}
+
+// Pick a representative point from any GeoJSON geometry: Point, (Multi)LineString, (Multi)Polygon
+// or GeometryCollection (QLDTraffic uses collections). Returns the middle vertex.
+export function geometryPoint(geometry: unknown): { lat: number; lng: number } | null {
+  const points: number[][] = []
+  const collect = (coords: unknown) => {
+    if (!Array.isArray(coords)) return
+    if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+      points.push(coords as number[])
+    } else {
+      coords.forEach(collect)
+    }
+  }
+  const walk = (g: unknown) => {
+    if (!g || typeof g !== 'object') return
+    const geom = g as { type?: string; coordinates?: unknown; geometries?: unknown[] }
+    if (geom.type === 'GeometryCollection') geom.geometries?.forEach(walk)
+    else collect(geom.coordinates)
+  }
+  walk(geometry)
+  if (points.length === 0) return null
+  const mid = points[Math.floor(points.length / 2)]
+  return Number.isFinite(mid[0]) && Number.isFinite(mid[1]) ? { lat: mid[1], lng: mid[0] } : null
 }
 
 // Calculate trend from recent readings

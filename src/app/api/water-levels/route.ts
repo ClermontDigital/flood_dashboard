@@ -2,12 +2,18 @@
  * Water Levels API Route
  * GET /api/water-levels
  *
- * Returns current water levels for all 17 gauges.
+ * Returns current water levels for all gauges in GAUGE_STATIONS.
  * Primary: Reads from Firestore (updated every 1-2 min by Cloud Scheduler)
  * Fallback: Direct fetch from WMIP/BOM if Firestore is unavailable
+ *
+ * Readings are only served while recent enough to present as current:
+ * WMIP readings up to 24h old (the WMIP request window; the UI flags anything
+ * over 3h as outdated) and BOM readings up to BOM_MAX_READING_AGE_MS, because
+ * BOM Water Data Online lags real time by ~14-24h.
  */
 
 import { NextResponse, NextRequest } from 'next/server'
+import { jsonResponse } from '@/lib/http'
 import type { WaterLevelsResponse, GaugeData, WaterLevel, FloodThresholds, DischargeReading, RainfallReading, DamStorageReading } from '@/lib/types'
 import { GAUGE_STATIONS } from '@/lib/constants'
 import { calculateStatus } from '@/lib/utils'
@@ -17,6 +23,7 @@ import {
   fetchBOMExtendedData,
   fetchAllBOMDamStorage,
 } from '@/lib/data-sources'
+import { BOM_MAX_READING_AGE_MS } from '@/lib/data-sources/bom'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
 import { getWaterLevelData, getGaugeUptimeSummary } from '@/lib/firestore'
 
@@ -37,6 +44,20 @@ const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
 }
 
+const WMIP_MAX_READING_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Whether a reading is recent enough to present as the current level
+ * (allows 1 minute of clock skew for future timestamps)
+ */
+function isReadingFresh(reading: WaterLevel | null | undefined): reading is WaterLevel {
+  if (!reading) return false
+  const dataTime = new Date(reading.timestamp).getTime()
+  const maxAge = reading.source === 'bom' ? BOM_MAX_READING_AGE_MS : WMIP_MAX_READING_AGE_MS
+  const now = Date.now()
+  return !isNaN(dataTime) && now - dataTime < maxAge && dataTime <= now + 60 * 1000
+}
+
 /**
  * Fallback: Fetch water level data directly from WMIP/BOM
  * Only used if Firestore is unavailable or data is too stale
@@ -49,18 +70,11 @@ async function fetchWaterLevelDataDirect(): Promise<{
   sources: string[]
 }> {
   const gaugeIds = GAUGE_STATIONS.map((station) => station.id)
+  const activeGaugeIds = GAUGE_STATIONS.filter((station) => !station.isOffline).map((station) => station.id)
   const sources: string[] = []
   const waterLevelMap = new Map<string, WaterLevel>()
 
   console.log('[API] Fallback: Direct fetch from WMIP/BOM for', gaugeIds.length, 'gauges')
-
-  // Helper to check if data is fresh (within last 48 hours)
-  const isDataFresh = (timestamp: string): boolean => {
-    const dataTime = new Date(timestamp).getTime()
-    const now = Date.now()
-    const maxAge = 48 * 60 * 60 * 1000 // 48 hours
-    return (now - dataTime) < maxAge && dataTime <= now
-  }
 
   try {
     // Try WMIP first (real-time telemetry data)
@@ -68,7 +82,7 @@ async function fetchWaterLevelDataDirect(): Promise<{
 
     let wmipSuccessCount = 0
     for (const [gaugeId, result] of wmipResults) {
-      if (result.success && result.data && isDataFresh(result.data.timestamp)) {
+      if (result.success && isReadingFresh(result.data)) {
         const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
         const enrichedData: WaterLevel = {
           ...result.data,
@@ -83,15 +97,15 @@ async function fetchWaterLevelDataDirect(): Promise<{
       sources.push('wmip')
     }
 
-    // For gauges without WMIP data, try BOM fallback
-    const missingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
+    // For gauges without WMIP data, try BOM fallback (skip gauges flagged offline)
+    const missingGaugeIds = activeGaugeIds.filter((id) => !waterLevelMap.has(id))
 
     if (missingGaugeIds.length > 0) {
       const bomResults = await fetchBOMMultipleGauges(missingGaugeIds)
 
       let bomSuccessCount = 0
       for (const [gaugeId, result] of bomResults) {
-        if (result.success && result.data && isDataFresh(result.data.timestamp)) {
+        if (result.success && isReadingFresh(result.data)) {
           const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
           const enrichedData: WaterLevel = {
             ...result.data,
@@ -122,7 +136,7 @@ async function fetchWaterLevelDataDirect(): Promise<{
 
   try {
     const [extendedData, damStorageData] = await Promise.all([
-      fetchBOMExtendedData(gaugeIds),
+      fetchBOMExtendedData(activeGaugeIds),
       fetchAllBOMDamStorage(),
     ])
 
@@ -142,7 +156,7 @@ async function fetchWaterLevelDataDirect(): Promise<{
   }
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse<WaterLevelsResponse>> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   // Apply rate limiting
   const clientIp = getClientIp(request)
   const rateLimitResult = checkRateLimit(clientIp)
@@ -191,14 +205,19 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
   const uptimeSummary = await getGaugeUptimeSummary()
 
   // Build response
-  const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => ({
-    station,
-    reading: waterLevelMap.get(station.id) || null,
-    thresholds: FLOOD_THRESHOLDS[station.id] || null,
-    discharge: dischargeMap.get(station.id) || null,
-    rainfall: rainfallMap.get(station.id) || null,
-    uptime: uptimeSummary?.[station.id] || undefined,
-  }))
+  // Never present stale readings as current (e.g. BOM daily aggregates that
+  // older cron versions stored, or a reading carried forward too long)
+  const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => {
+    const reading = waterLevelMap.get(station.id)
+    return {
+      station,
+      reading: isReadingFresh(reading) ? reading : null,
+      thresholds: FLOOD_THRESHOLDS[station.id] || null,
+      discharge: dischargeMap.get(station.id) || null,
+      rainfall: rainfallMap.get(station.id) || null,
+      uptime: uptimeSummary?.[station.id] || undefined,
+    }
+  })
 
   const response: WaterLevelsResponse = {
     timestamp: new Date().toISOString(),
@@ -207,7 +226,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<WaterLevel
     damStorage: damStorage.length > 0 ? damStorage : undefined,
   }
 
-  return NextResponse.json(response, {
+  return jsonResponse(request, response, {
     headers: {
       'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30',
       'X-Data-Age': String(Math.round(dataAge / 1000)),

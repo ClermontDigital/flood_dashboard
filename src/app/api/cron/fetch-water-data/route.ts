@@ -9,10 +9,11 @@
  */
 
 import { NextResponse, NextRequest } from 'next/server'
+import { isCronAuthorized } from '@/lib/cron-auth'
 import type { WaterLevel, DischargeReading, RainfallReading, DamStorageReading, FloodThresholds, RoadEvent } from '@/lib/types'
 import { GAUGE_STATIONS } from '@/lib/constants'
 import { env } from '@/lib/env'
-import { calculateStatus } from '@/lib/utils'
+import { calculateStatus, geometryPoint } from '@/lib/utils'
 import {
   fetchWMIPMultipleGauges,
   fetchBOMMultipleGauges,
@@ -20,7 +21,9 @@ import {
   fetchAllBOMDamStorage,
   fetchStateRainfall,
 } from '@/lib/data-sources'
+import { BOM_MAX_READING_AGE_MS } from '@/lib/data-sources/bom'
 import {
+  getWaterLevelData,
   storeWaterLevelData,
   recordFetchError,
   recordFetchSuccess,
@@ -29,6 +32,22 @@ import {
   storeRoadClosures,
   updateGaugeUptimeTracking,
 } from '@/lib/firestore'
+
+/**
+ * WMIP readings are requested over a 24h window, so a WMIP reading is never
+ * older than this. A previous reading is carried forward (with its original
+ * timestamp) while it is still within this age, so a transient WMIP failure
+ * doesn't blank a gauge for a cron cycle.
+ */
+const WMIP_MAX_READING_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * BOM discharge/rainfall/dam storage is a delayed daily archive, so refresh it
+ * at most every 30 minutes (one cron run per 30-minute block) instead of
+ * sending ~230 BOM requests on every 2-minute run. In between, the previous
+ * values from Firestore are reused.
+ */
+const EXTENDED_REFRESH_BLOCK_MINUTES = 30
 
 // Queensland state bounding box
 const QLD_BOUNDS = {
@@ -52,45 +71,29 @@ const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
 }
 
-// Cron secret for basic authentication (in addition to Cloud Scheduler's OIDC)
-const CRON_SECRET = process.env.CRON_SECRET
 
 /**
  * Verify the request is from Cloud Scheduler or has a valid cron secret
  */
 function isAuthorized(request: NextRequest): boolean {
-  // Check for cron secret header
-  const cronSecret = request.headers.get('x-cron-secret')
-  if (cronSecret && CRON_SECRET && cronSecret === CRON_SECRET) {
-    return true
-  }
-
-  // Check for Cloud Scheduler OIDC token (handled by Cloud Run's IAM)
-  // When configured correctly, Cloud Run validates the OIDC token automatically
-  // and allows the request through if the service account is authorized
-
-  // For local development, allow if no secret is configured
-  if (!CRON_SECRET && process.env.NODE_ENV === 'development') {
-    return true
-  }
-
-  // Check for Google Cloud Scheduler user agent
-  const userAgent = request.headers.get('user-agent') || ''
-  if (userAgent.includes('Google-Cloud-Scheduler')) {
-    return true
-  }
-
-  return false
+  return isCronAuthorized(request)
 }
 
 /**
- * Helper to check if data is fresh (within last 48 hours)
+ * Helper to check if a reading is recent enough to present as current.
+ * Allows 1 minute of clock skew for future timestamps.
  */
-function isDataFresh(timestamp: string): boolean {
+function isWithinAge(timestamp: string, maxAgeMs: number): boolean {
   const dataTime = new Date(timestamp).getTime()
   const now = Date.now()
-  const maxAge = 48 * 60 * 60 * 1000 // 48 hours
-  return (now - dataTime) < maxAge && dataTime <= now
+  return !isNaN(dataTime) && (now - dataTime) < maxAgeMs && dataTime <= now + 60 * 1000
+}
+
+function isReadingFresh(reading: WaterLevel): boolean {
+  return isWithinAge(
+    reading.timestamp,
+    reading.source === 'bom' ? BOM_MAX_READING_AGE_MS : WMIP_MAX_READING_AGE_MS
+  )
 }
 
 /**
@@ -133,18 +136,8 @@ async function fetchRoadClosuresData(): Promise<RoadEvent[]> {
       const props = feature.properties || feature
       const geometry = feature.geometry || props.geometry
 
-      // Get coordinates
-      let coords: { lat: number; lng: number } | null = null
-      if (geometry?.coordinates) {
-        if (geometry.type === 'Point') {
-          coords = { lat: geometry.coordinates[1], lng: geometry.coordinates[0] }
-        } else if (geometry.type === 'LineString' && geometry.coordinates.length > 0) {
-          const mid = Math.floor(geometry.coordinates.length / 2)
-          coords = { lat: geometry.coordinates[mid][1], lng: geometry.coordinates[mid][0] }
-        } else if (geometry.type === 'MultiLineString' && geometry.coordinates[0]?.length > 0) {
-          coords = { lat: geometry.coordinates[0][0][1], lng: geometry.coordinates[0][0][0] }
-        }
-      }
+      // Get coordinates (QLDTraffic sends GeometryCollections as well as plain geometries)
+      const coords = geometryPoint(geometry)
 
       if (!coords) continue
 
@@ -209,17 +202,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   console.log('[Cron] Starting water data fetch...')
 
   const gaugeIds = GAUGE_STATIONS.map((station) => station.id)
+  const offlineIds = new Set(GAUGE_STATIONS.filter((s) => s.isOffline).map((s) => s.id))
   const sources: string[] = []
   const waterLevelMap = new Map<string, WaterLevel>()
 
   try {
-    // Fetch from WMIP (primary source - real-time telemetry)
+    // Previous stored run (up to 24h old) - used to carry forward readings on
+    // transient upstream failures and to reuse slow-changing BOM extended data
+    const previous = await getWaterLevelData(WMIP_MAX_READING_AGE_MS)
+
+    // Fetch from WMIP (primary source - real-time telemetry).
+    // All gauges, including those flagged offline, so a gauge that comes back
+    // online shows up automatically. Batched into a few multi-site requests.
     console.log('[Cron] Fetching from WMIP...')
     const wmipResults = await fetchWMIPMultipleGauges(gaugeIds)
 
     let wmipSuccessCount = 0
     for (const [gaugeId, result] of wmipResults) {
-      if (result.success && result.data && isDataFresh(result.data.timestamp)) {
+      if (result.success && result.data && isReadingFresh(result.data)) {
         const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
         const enrichedData: WaterLevel = {
           ...result.data,
@@ -239,15 +239,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       sources.push('wmip')
     }
 
-    // Fetch from BOM for missing gauges
-    const missingGaugeIds = gaugeIds.filter((id) => !waterLevelMap.has(id))
+    // Fetch from BOM for missing gauges (not for gauges flagged offline, nor
+    // ones whose previous reading is still within BOM_MAX_READING_AGE_MS, which
+    // BOM can't beat). BOM Water Data Online lags real time by ~14-24h, so its
+    // readings are only used when within BOM_MAX_READING_AGE_MS
+    // (fetchBOMWaterLevel enforces it); in practice this rarely succeeds.
+    const hasRecentPrevious = (id: string): boolean => {
+      const prevReading = previous?.waterLevels?.[id]
+      return !!prevReading && isWithinAge(prevReading.timestamp, BOM_MAX_READING_AGE_MS)
+    }
+    const missingGaugeIds = gaugeIds.filter(
+      (id) => !waterLevelMap.has(id) && !offlineIds.has(id) && !hasRecentPrevious(id)
+    )
     if (missingGaugeIds.length > 0) {
       console.log(`[Cron] Fetching ${missingGaugeIds.length} missing gauges from BOM...`)
       const bomResults = await fetchBOMMultipleGauges(missingGaugeIds)
 
       let bomSuccessCount = 0
       for (const [gaugeId, result] of bomResults) {
-        if (result.success && result.data && isDataFresh(result.data.timestamp)) {
+        if (result.success && result.data && isReadingFresh(result.data)) {
           const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
           const enrichedData: WaterLevel = {
             ...result.data,
@@ -264,25 +274,57 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Fetch extended data (discharge, rainfall) and dam storage
-    console.log('[Cron] Fetching extended data...')
-    let dischargeMap = new Map<string, DischargeReading>()
-    let rainfallMap = new Map<string, RainfallReading>()
-    let damStorage: DamStorageReading[] = []
+    // Carry forward previous readings that are still fresh (original timestamp
+    // kept, so the UI's "outdated" warning still applies)
+    let carriedForward = 0
+    if (previous) {
+      for (const gaugeId of gaugeIds) {
+        if (waterLevelMap.has(gaugeId)) continue
+        const prevReading = previous.waterLevels?.[gaugeId]
+        if (prevReading && isReadingFresh(prevReading)) {
+          waterLevelMap.set(gaugeId, prevReading)
+          carriedForward++
+        }
+      }
+      if (carriedForward > 0) {
+        console.log(`[Cron] Carried forward ${carriedForward} previous readings`)
+      }
+    }
 
-    try {
-      const [extendedData, damStorageData] = await Promise.all([
-        fetchBOMExtendedData(gaugeIds),
-        fetchAllBOMDamStorage(),
-      ])
+    // Extended data (discharge, rainfall) and dam storage from BOM.
+    // Refreshed once per EXTENDED_REFRESH_BLOCK_MINUTES block, otherwise reused.
+    let dischargeMap = new Map<string, DischargeReading>(Object.entries(previous?.discharge || {}))
+    let rainfallMap = new Map<string, RainfallReading>(Object.entries(previous?.rainfall || {}))
+    let damStorage: DamStorageReading[] = previous?.damStorage || []
 
-      dischargeMap = extendedData.discharge
-      rainfallMap = extendedData.rainfall
-      damStorage = damStorageData
+    const minuteOfEpoch = Math.floor(Date.now() / 60000)
+    const refreshExtended =
+      !previous ||
+      minuteOfEpoch % EXTENDED_REFRESH_BLOCK_MINUTES < 2 ||
+      (dischargeMap.size === 0 && rainfallMap.size === 0 && damStorage.length === 0)
 
-      console.log(`[Cron] Extended data: ${dischargeMap.size} discharge, ${rainfallMap.size} rainfall, ${damStorage.length} dam storage`)
-    } catch (error) {
-      console.error('[Cron] Error fetching extended data:', error)
+    if (refreshExtended) {
+      console.log('[Cron] Fetching extended data...')
+      try {
+        const activeGaugeIds = gaugeIds.filter((id) => !offlineIds.has(id))
+        const [extendedData, damStorageData] = await Promise.all([
+          fetchBOMExtendedData(activeGaugeIds),
+          fetchAllBOMDamStorage(),
+        ])
+
+        dischargeMap = extendedData.discharge
+        rainfallMap = extendedData.rainfall
+        damStorage = damStorageData
+
+        console.log(`[Cron] Extended data: ${dischargeMap.size} discharge, ${rainfallMap.size} rainfall, ${damStorage.length} dam storage`)
+      } catch (error) {
+        console.error('[Cron] Error fetching extended data:', error)
+      }
+    } else {
+      // Drop entries for gauges no longer in GAUGE_STATIONS (e.g. re-mapped IDs)
+      const known = new Set(gaugeIds)
+      for (const id of Array.from(dischargeMap.keys())) if (!known.has(id)) dischargeMap.delete(id)
+      for (const id of Array.from(rainfallMap.keys())) if (!known.has(id)) rainfallMap.delete(id)
     }
 
     // Check for elevated levels (shorter refresh during floods)
@@ -369,6 +411,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       success: true,
       gaugesUpdated: waterLevelMap.size,
+      gaugesFresh: reportingGaugeIds.size,
+      carriedForward,
+      extendedRefreshed: refreshExtended,
       sources,
       isElevated,
       rainfallStored,

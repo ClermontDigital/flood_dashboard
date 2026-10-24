@@ -1,0 +1,13 @@
+# Files never uploaded to Cloud Build (secrets stay local; Secret Manager supplies them at runtime)
+.gcloudignore
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+.next
+.claude
+.vscode
+.idea
+*.log

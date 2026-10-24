@@ -1,16 +1,23 @@
+# Build:  gcloud builds submit --config=cloudbuild.yaml --region=australia-southeast1 \
+#           --substitutions=_MAPBOX_TOKEN=<public Mapbox token>
 steps:
+  # Fail fast: without the token the map renders blank
+  - name: 'bash'
+    args: ['-c', 'test -n "${_MAPBOX_TOKEN}" || { echo "_MAPBOX_TOKEN substitution is required"; exit 1; }']
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '--build-arg'
       - 'NEXT_PUBLIC_MAPBOX_TOKEN=${_MAPBOX_TOKEN}'
       - '-t'
-      - '${_IMAGE}'
+      - '${_IMAGE}:latest'
+      - '-t'
+      - '${_IMAGE}:${BUILD_ID}'
       - '.'
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_IMAGE}']
+# Tagged with the build ID as well as latest so deploys and rollbacks can pin an exact image
 images:
-  - '${_IMAGE}'
+  - '${_IMAGE}:latest'
+  - '${_IMAGE}:${BUILD_ID}'
 substitutions:
-  _IMAGE: 'asia-southeast1-docker.pkg.dev/clermontdigital-1741262269603/cloud-run-source-deploy/gauge-dashboard'
+  _IMAGE: 'australia-southeast1-docker.pkg.dev/clermontdigital-1741262269603/gauge/gauge-dashboard'
   _MAPBOX_TOKEN: ''

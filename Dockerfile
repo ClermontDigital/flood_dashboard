@@ -12,6 +12,10 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Some council dashboard servers omit intermediate certificates; supply them so fetches succeed
+# (also needed here because the cameras route is prerendered at build time)
+ENV NODE_EXTRA_CA_CERTS=/app/certs/council-intermediates.pem
+
 # Accept build-time env vars for Next.js public config
 ARG NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
@@ -34,6 +38,10 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/certs ./certs
+
+# See builder stage: intermediates for council dashboard servers with incomplete chains
+ENV NODE_EXTRA_CA_CERTS=/app/certs/council-intermediates.pem
 
 # Set correct permissions
 USER nextjs

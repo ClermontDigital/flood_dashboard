@@ -1,3 +1,4 @@
+import { geometryPoint } from '@/lib/utils'
 import { NextResponse } from 'next/server'
 import type { RoadEvent, RoadEventsResponse } from '@/lib/types'
 import { getRoadClosures } from '@/lib/firestore'
@@ -70,41 +71,7 @@ function mapSeverity(impactType?: string, eventType?: string): RoadEvent['severi
 }
 
 function getCoordinates(geometry?: QLDTrafficEvent['geometry']): { lat: number; lng: number } | null {
-  if (!geometry || !geometry.coordinates) return null
-
-  try {
-    if (geometry.type === 'Point') {
-      const coords = geometry.coordinates as number[]
-      return { lat: coords[1], lng: coords[0] }
-    }
-
-    if (geometry.type === 'LineString') {
-      const coords = geometry.coordinates as number[][]
-      // Return midpoint of line
-      const midIndex = Math.floor(coords.length / 2)
-      return { lat: coords[midIndex][1], lng: coords[midIndex][0] }
-    }
-
-    if (geometry.type === 'MultiLineString') {
-      const coords = geometry.coordinates as number[][][]
-      // Return first point of first line
-      if (coords.length > 0 && coords[0].length > 0) {
-        return { lat: coords[0][0][1], lng: coords[0][0][0] }
-      }
-    }
-
-    if (geometry.type === 'Polygon') {
-      const coords = geometry.coordinates as number[][][]
-      // Return centroid approximation (first point)
-      if (coords.length > 0 && coords[0].length > 0) {
-        return { lat: coords[0][0][1], lng: coords[0][0][0] }
-      }
-    }
-  } catch {
-    return null
-  }
-
-  return null
+  return geometryPoint(geometry)
 }
 
 function isInRegion(lat: number, lng: number): boolean {

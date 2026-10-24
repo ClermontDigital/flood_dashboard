@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Documentation (generated)
 docs/
+
+# Written by `next dev` (Next 16.4+)
+AGENTS.md

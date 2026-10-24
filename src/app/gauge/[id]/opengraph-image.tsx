@@ -1,5 +1,5 @@
 import { ImageResponse } from 'next/og'
-import { GAUGE_STATIONS } from '@/lib/constants'
+import { GAUGE_STATIONS, resolveGaugeId } from '@/lib/constants'
 
 export const runtime = 'edge'
 
@@ -15,7 +15,7 @@ interface Props {
 }
 
 export default async function Image({ params }: Props) {
-  const { id } = await params
+  const id = resolveGaugeId((await params).id)
   const gauge = GAUGE_STATIONS.find(g => g.id === id)
 
   const gaugeName = gauge?.name || 'Unknown Gauge'

@@ -2,10 +2,28 @@
  * Bureau of Meteorology (BOM) Water Data Online API Client
  *
  * This module provides access to BOM's SOS2 (Sensor Observation Service)
- * water level data as a backup/validation source for the primary WMIP data.
+ * water data as a backup/validation source for the primary WMIP data.
  *
- * Endpoint: http://www.bom.gov.au/waterdata/services
+ * Endpoint: https://www.bom.gov.au/waterdata/services (WaterML 2.0 XML only)
  * Documentation: http://www.bom.gov.au/waterdata/
+ *
+ * Important behaviour (verified against the live service, Oct 2026):
+ * - Without a temporalFilter, GetObservation returns only the latest value of
+ *   each series, and the continuous ("AsStored") series come back nil. What
+ *   remains are aggregates (DailyMax/DailyMin/MonthlyMean/YearlyMean...), so
+ *   the old code reported the previous day's DailyMax as the "current" level.
+ * - Water Data Online is a delayed archive: Queensland continuous data arrives
+ *   in batches and is typically 14-24h behind real time. It is therefore not a
+ *   real-time fallback, and readings older than BOM_MAX_READING_AGE_MS are
+ *   rejected so stale values are never presented as current.
+ * - Every parameter has a quality-controlled continuous series
+ *   "DMQaQc.Merged.AsStored.1" whose procedure id is
+ *   tstypes/Pat{n}_C_B_1 (rainfall n=2, level n=3, discharge n=4,
+ *   storage volume n=6, storage level n=7). Requesting that procedure cuts the
+ *   response from ~100-170KB to ~15KB.
+ * - Parameter names contain spaces and must be URL-encoded exactly once
+ *   (URLSearchParams does this). The previous encodeURIComponent() + URLSearchParams
+ *   produced "Water%2520Course%2520Discharge", which matched nothing.
  */
 
 import type { WaterLevel, Trend, FloodStatus, HistoryPoint, DischargeReading, DamStorageReading, RainfallReading } from '../types'
@@ -24,6 +42,13 @@ export interface BOMHistoryResponse {
   error?: string
 }
 
+/**
+ * Maximum age of a BOM reading that may be presented as the current level.
+ * BOM Water Data Online lags real time by ~14-24h for Queensland gauges, so in
+ * practice this rejects BOM fallback readings unless BOM catches up.
+ */
+export const BOM_MAX_READING_AGE_MS = 3 * 60 * 60 * 1000
+
 // BOM SOS2 request parameters
 interface SOS2Request {
   service: 'SOS'
@@ -31,6 +56,7 @@ interface SOS2Request {
   request: 'GetObservation' | 'GetCapabilities' | 'DescribeSensor'
   featureOfInterest?: string
   observedProperty?: string
+  procedure?: string
   temporalFilter?: string
   responseFormat?: string
 }
@@ -43,29 +69,38 @@ interface BOMObservation {
   unit: string
 }
 
-// BOM feature of interest mapping (gauge IDs to BOM station identifiers)
-// BOM uses different identifiers - these map our gauge IDs to BOM station codes
-const GAUGE_TO_BOM_FEATURE: Record<string, string> = {
-  '130207A': 'http://bom.gov.au/waterdata/services/stations/130207A',
-  '130401A': 'http://bom.gov.au/waterdata/services/stations/130401A',
-  '130410A': 'http://bom.gov.au/waterdata/services/stations/130410A',
-  '130209A': 'http://bom.gov.au/waterdata/services/stations/130209A',
-  '130219A': 'http://bom.gov.au/waterdata/services/stations/130219A',
-  '130106A': 'http://bom.gov.au/waterdata/services/stations/130106A',
-  '130105B': 'http://bom.gov.au/waterdata/services/stations/130105B',
-  '130113A': 'http://bom.gov.au/waterdata/services/stations/130113A',
-  '130004A': 'http://bom.gov.au/waterdata/services/stations/130004A',
-  '130005A': 'http://bom.gov.au/waterdata/services/stations/130005A',
+const STATION_URL_PREFIX = 'http://bom.gov.au/waterdata/services/stations/'
+const PARAMETER_URL_PREFIX = 'http://bom.gov.au/waterdata/services/parameters/'
+const PROCEDURE_URL_PREFIX = 'http://bom.gov.au/waterdata/services/tstypes/'
+
+/** Title of the quality-controlled continuous series for every parameter */
+const CONTINUOUS_SERIES_TITLE = 'DMQaQc.Merged.AsStored.1'
+
+/** Procedure (timeseries type) ids of the continuous series, per parameter */
+const CONTINUOUS_PROCEDURE: Record<string, string> = {
+  [BOM_PARAMS.RAINFALL]: 'Pat2_C_B_1',
+  [BOM_PARAMS.WATER_COURSE_LEVEL]: 'Pat3_C_B_1',
+  [BOM_PARAMS.WATER_COURSE_DISCHARGE]: 'Pat4_C_B_1',
+  [BOM_PARAMS.STORAGE_VOLUME]: 'Pat6_C_B_1',
+  [BOM_PARAMS.STORAGE_LEVEL]: 'Pat7_C_B_1',
 }
 
-// BOM observed property for water level
-// Note: BOM uses spaces in the parameter name, but we filter client-side instead
-// because URL encoding issues can cause empty responses
-const WATER_LEVEL_PROPERTY = ''  // Empty - we'll get all data and filter client-side
+/** Aggregate series that must never be read as an instantaneous value */
+const AGGREGATE_SERIES_PATTERN = /(Daily|Hourly|Monthly|Yearly)/i
+
+/** Look-back windows. BOM lags real time, so the window must cover the lag. */
+const LEVEL_LOOKBACK_HOURS = 48
+const DISCHARGE_LOOKBACK_HOURS = 48
+const STORAGE_LOOKBACK_HOURS = 7 * 24
+
+function stationUrl(stationId: string): string {
+  return `${STATION_URL_PREFIX}${stationId}`
+}
 
 /**
  * Build a SOS2 GetObservation request URL
- * BOM only supports WaterML 2.0 format (not JSON)
+ * BOM only supports WaterML 2.0 format (not JSON).
+ * Values are passed raw: URLSearchParams encodes each one exactly once.
  */
 function buildSOS2Url(params: Partial<SOS2Request>): string {
   const baseParams: SOS2Request = {
@@ -87,106 +122,150 @@ function buildSOS2Url(params: Partial<SOS2Request>): string {
 }
 
 /**
- * Parse BOM SOS2 JSON response into observations
- * BOM returns data in OGC SOS 2.0 format
+ * Build a GetObservation URL for one station/parameter, optionally restricted
+ * to the continuous series and a look-back window.
  */
-function parseSOS2Response(data: unknown, gaugeId: string): BOMObservation[] {
-  const observations: BOMObservation[] = []
-
-  try {
-    // SOS2 response structure varies - handle common formats
-    const response = data as Record<string, unknown>
-
-    // Check for observations array in various locations
-    const obsCollection = response.observations ||
-                          response.ObservationCollection ||
-                          (response.value as unknown[]) ||
-                          []
-
-    if (!Array.isArray(obsCollection)) {
-      return observations
-    }
-
-    for (const obs of obsCollection) {
-      const obsData = obs as Record<string, unknown>
-
-      // Extract result value - may be nested
-      let resultValue: number | undefined
-      let resultTime: string | undefined
-      let resultUnit = 'm'
-
-      // Try different result structures
-      if (obsData.result !== undefined) {
-        const rawResult = obsData.result
-        if (typeof rawResult === 'number') {
-          resultValue = rawResult
-        } else if (typeof rawResult === 'object' && rawResult !== null) {
-          const result = rawResult as Record<string, unknown>
-          if (typeof result.value === 'number') {
-            resultValue = result.value
-          } else if (typeof result.value === 'string') {
-            resultValue = parseFloat(result.value)
-          }
-          if (result.uom) {
-            resultUnit = result.uom as string
-          }
-        }
-      }
-
-      // Extract phenomenon time
-      if (obsData.phenomenonTime) {
-        const phenTime = obsData.phenomenonTime as Record<string, unknown>
-        if (typeof phenTime === 'string') {
-          resultTime = phenTime
-        } else {
-          resultTime = (phenTime.timePosition || phenTime.instant || phenTime) as string
-        }
-      } else if (obsData.resultTime) {
-        resultTime = obsData.resultTime as string
-      }
-
-      if (resultValue !== undefined && !isNaN(resultValue) && resultTime) {
-        observations.push({
-          gaugeId,
-          timestamp: new Date(resultTime).toISOString(),
-          value: resultValue,
-          unit: resultUnit,
-        })
-      }
-    }
-  } catch (error) {
-    console.error('[BOM] Error parsing SOS2 response:', error)
+function buildObservationUrl(
+  stationId: string,
+  parameterName: string,
+  options: { hoursBack?: number; continuousOnly?: boolean } = {}
+): string {
+  const params: Partial<SOS2Request> = {
+    featureOfInterest: stationUrl(stationId),
+    observedProperty: `${PARAMETER_URL_PREFIX}${parameterName}`,
   }
 
-  return observations
+  if (options.continuousOnly && CONTINUOUS_PROCEDURE[parameterName]) {
+    params.procedure = `${PROCEDURE_URL_PREFIX}${CONTINUOUS_PROCEDURE[parameterName]}`
+  }
+
+  if (options.hoursBack) {
+    const now = new Date()
+    const start = new Date(now.getTime() - options.hoursBack * 60 * 60 * 1000)
+    params.temporalFilter = `om:phenomenonTime,${start.toISOString()}/${now.toISOString()}`
+  }
+
+  return buildSOS2Url(params)
+}
+
+async function fetchXml(url: string, timeoutMs: number): Promise<string | null> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/xml' },
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      console.warn(`[BOM] HTTP ${response.status} for ${url.substring(0, 160)}`)
+      return null
+    }
+    return await response.text()
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+interface ParsedSeries {
+  property: string
+  procedure: string
+  unit: string
+  points: Array<{ time: string; value: number }>
 }
 
 /**
- * Calculate trend from multiple observations
+ * Parse every OM_Observation block of a WaterML 2.0 response
+ */
+function parseWaterML2Series(xml: string): ParsedSeries[] {
+  const series: ParsedSeries[] = []
+
+  try {
+    const obsPattern = /<om:OM_Observation[^>]*>[\s\S]*?<\/om:OM_Observation>/gi
+    const obsBlocks = xml.match(obsPattern) || []
+
+    for (const block of obsBlocks) {
+      const property = block.match(/<om:observedProperty[^>]*xlink:title="([^"]*)"/i)?.[1] || ''
+      const procedure = block.match(/<om:procedure[^>]*xlink:title="([^"]*)"/i)?.[1] || ''
+      const unit = block.match(/uom\s+code="([^"]+)"/i)?.[1] || ''
+
+      const points: ParsedSeries['points'] = []
+      const tvpPattern = /<wml2:MeasurementTVP>([\s\S]*?)<\/wml2:MeasurementTVP>/gi
+      let tvpMatch
+      while ((tvpMatch = tvpPattern.exec(block)) !== null) {
+        const tvpContent = tvpMatch[1]
+        const timeMatch = tvpContent.match(/<wml2:time>([^<]+)<\/wml2:time>/i)
+        // Nil values look like <wml2:value xsi:nil="true"/> and are skipped
+        const valueMatch = tvpContent.match(/<wml2:value>([^<]+)<\/wml2:value>/i)
+        if (!timeMatch || !valueMatch) continue
+        const value = parseFloat(valueMatch[1])
+        const time = new Date(timeMatch[1])
+        if (!isNaN(value) && !isNaN(time.getTime())) {
+          points.push({ time: time.toISOString(), value })
+        }
+      }
+
+      series.push({ property, procedure, unit, points })
+    }
+  } catch (error) {
+    console.error('[BOM] Error parsing WaterML2 response:', error)
+  }
+
+  return series
+}
+
+/**
+ * Extract observations for one parameter, from the continuous series only.
+ * Prefers the quality-controlled DMQaQc.Merged.AsStored.1 series and never
+ * uses Daily/Hourly/Monthly/Yearly aggregates.
+ */
+function extractContinuousObservations(xml: string, gaugeId: string, parameterName: string): BOMObservation[] {
+  const candidates = parseWaterML2Series(xml).filter(s =>
+    s.property.includes(parameterName) &&
+    s.points.length > 0 &&
+    !AGGREGATE_SERIES_PATTERN.test(s.procedure)
+  )
+  if (candidates.length === 0) return []
+
+  const preferred = candidates.find(s => s.procedure === CONTINUOUS_SERIES_TITLE) ||
+    // Otherwise the series with the most recent point
+    [...candidates].sort((a, b) =>
+      new Date(b.points[b.points.length - 1].time).getTime() - new Date(a.points[a.points.length - 1].time).getTime()
+    )[0]
+
+  return preferred.points
+    .map(p => ({ gaugeId, timestamp: p.time, value: p.value, unit: preferred.unit || 'm' }))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+}
+
+/**
+ * Calculate trend from observations (sorted ascending), comparing the latest
+ * reading with the one closest to an hour earlier.
  */
 function calculateTrend(observations: BOMObservation[]): { trend: Trend; changeRate: number } {
   if (observations.length < 2) {
     return { trend: 'stable', changeRate: 0 }
   }
 
-  // Sort by timestamp descending (most recent first)
-  const sorted = [...observations].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  )
+  const latest = observations[observations.length - 1]
+  const latestTime = new Date(latest.timestamp).getTime()
+  const target = latestTime - 60 * 60 * 1000
+  let previous = observations[observations.length - 2]
+  for (let i = observations.length - 2; i >= 0; i--) {
+    const t = new Date(observations[i].timestamp).getTime()
+    if (Math.abs(t - target) < Math.abs(new Date(previous.timestamp).getTime() - target)) {
+      previous = observations[i]
+    }
+    if (t < target) break
+  }
 
-  const latest = sorted[0]
-  const previous = sorted[1]
+  const timeDiffHours = (latestTime - new Date(previous.timestamp).getTime()) / (1000 * 60 * 60)
 
-  const timeDiffHours =
-    (new Date(latest.timestamp).getTime() - new Date(previous.timestamp).getTime()) /
-    (1000 * 60 * 60)
-
-  if (timeDiffHours <= 0) {
+  if (timeDiffHours < 0.25 || timeDiffHours > 6) {
     return { trend: 'stable', changeRate: 0 }
   }
 
-  const levelDiff = latest.value - previous.value
-  const changeRate = levelDiff / timeDiffHours
+  const changeRate = (latest.value - previous.value) / timeDiffHours
 
   // Consider stable if change is less than 0.01m/hr
   if (Math.abs(changeRate) < 0.01) {
@@ -212,128 +291,61 @@ function determineStatus(level: number): FloodStatus {
 }
 
 /**
- * Parse WaterML 2.0 XML response into observations
- * BOM returns XML with OM_Observation blocks containing different parameters
- * We need to find Water Course Level observations with actual (non-nil) values
+ * Fetch the continuous water level series for a gauge (ascending by time)
  */
-function parseWaterML2Response(xml: string, gaugeId: string): BOMObservation[] {
-  const observations: BOMObservation[] = []
+async function fetchBOMLevelObservations(gaugeId: string, hoursBack: number, timeoutMs: number): Promise<BOMObservation[]> {
+  const url = buildObservationUrl(gaugeId, BOM_PARAMS.WATER_COURSE_LEVEL, { hoursBack, continuousOnly: true })
+  const xml = await fetchXml(url, timeoutMs)
+  if (!xml) return []
+  return extractContinuousObservations(xml, gaugeId, BOM_PARAMS.WATER_COURSE_LEVEL)
+}
 
-  try {
-    // Split XML into individual OM_Observation blocks
-    const obsPattern = /<om:OM_Observation[^>]*>[\s\S]*?<\/om:OM_Observation>/gi
-    const obsBlocks = xml.match(obsPattern) || []
-
-    for (const block of obsBlocks) {
-      // Check if this observation is for Water Course Level
-      if (!block.includes('Water Course Level')) {
-        continue
-      }
-
-      // Extract unit (default to m)
-      const unitMatch = block.match(/uom\s+code="([^"]+)"/i)
-      const unit = unitMatch ? unitMatch[1] : 'm'
-
-      // Find all MeasurementTVP points with actual values (not nil)
-      // Match time and value separately to handle different formats
-      const tvpPattern = /<wml2:MeasurementTVP>([\s\S]*?)<\/wml2:MeasurementTVP>/gi
-      let tvpMatch
-
-      while ((tvpMatch = tvpPattern.exec(block)) !== null) {
-        const tvpContent = tvpMatch[1]
-
-        // Extract time
-        const timeMatch = tvpContent.match(/<wml2:time>([^<]+)<\/wml2:time>/i)
-        if (!timeMatch) continue
-
-        // Check for non-nil value (value tag that has content and doesn't have nil attribute)
-        // Nil values look like: <wml2:value xsi:nil="true"/>
-        // Real values look like: <wml2:value>0.279</wml2:value>
-        const valueMatch = tvpContent.match(/<wml2:value>([^<]+)<\/wml2:value>/i)
-        if (!valueMatch) continue
-
-        const timeStr = timeMatch[1]
-        const valueStr = valueMatch[1]
-        const value = parseFloat(valueStr)
-
-        if (!isNaN(value)) {
-          observations.push({
-            gaugeId,
-            timestamp: new Date(timeStr).toISOString(),
-            value,
-            unit,
-          })
-        }
-      }
-    }
-
-    console.log(`[BOM] Parsed ${observations.length} observations for gauge ${gaugeId}`)
-  } catch (error) {
-    console.error('[BOM] Error parsing WaterML2 response:', error)
+function buildWaterLevel(gaugeId: string, observations: BOMObservation[]): WaterLevel {
+  const latest = observations[observations.length - 1]
+  const { trend, changeRate } = calculateTrend(observations)
+  return {
+    gaugeId,
+    level: latest.value,
+    unit: latest.unit,
+    trend,
+    changeRate,
+    status: determineStatus(latest.value),
+    timestamp: latest.timestamp,
+    source: 'bom',
   }
+}
 
-  return observations
+function isWithinAge(timestamp: string, maxAgeMs: number): boolean {
+  const t = new Date(timestamp).getTime()
+  const now = Date.now()
+  return !isNaN(t) && now - t <= maxAgeMs && t <= now + 60 * 1000
 }
 
 /**
  * Fetch water level data for a specific gauge from BOM
- * Returns null if unavailable (graceful degradation)
+ * Returns null if unavailable, or if the latest continuous reading is older
+ * than maxAgeMs (default BOM_MAX_READING_AGE_MS) - graceful degradation.
  */
-export async function fetchBOMWaterLevel(gaugeId: string): Promise<WaterLevel | null> {
-  const featureOfInterest = GAUGE_TO_BOM_FEATURE[gaugeId] || `http://bom.gov.au/waterdata/services/stations/${gaugeId}`
+export async function fetchBOMWaterLevel(
+  gaugeId: string,
+  options: { maxAgeMs?: number; timeoutMs?: number } = {}
+): Promise<WaterLevel | null> {
+  const maxAgeMs = options.maxAgeMs ?? BOM_MAX_READING_AGE_MS
 
   try {
-    // Build URL for water level data
-    // Don't include observedProperty - we filter client-side for Water Course Level
-    const url = buildSOS2Url({
-      featureOfInterest,
-    })
-
-    console.log(`[BOM] Fetching ${gaugeId} from: ${url.substring(0, 100)}...`)
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s timeout
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'Accept': 'application/xml',
-      },
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      console.warn(`[BOM] HTTP ${response.status} for gauge ${gaugeId}`)
-      return null
-    }
-
-    // BOM returns XML, not JSON
-    const xml = await response.text()
-    const observations = parseWaterML2Response(xml, gaugeId)
+    const observations = await fetchBOMLevelObservations(gaugeId, LEVEL_LOOKBACK_HOURS, options.timeoutMs ?? 15000)
 
     if (observations.length === 0) {
-      console.warn(`[BOM] No observations found for gauge ${gaugeId}`)
+      console.warn(`[BOM] No continuous level observations for gauge ${gaugeId}`)
       return null
     }
 
-    // Use the most recent observation
-    const sorted = observations.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    )
-    const latest = sorted[0]
-    const { trend, changeRate } = calculateTrend(observations)
-
-    return {
-      gaugeId,
-      level: latest.value,
-      unit: latest.unit,
-      trend,
-      changeRate,
-      status: determineStatus(latest.value),
-      timestamp: latest.timestamp,
-      source: 'bom',
+    const reading = buildWaterLevel(gaugeId, observations)
+    if (!isWithinAge(reading.timestamp, maxAgeMs)) {
+      console.warn(`[BOM] Latest level for ${gaugeId} is too old to use (${reading.timestamp})`)
+      return null
     }
+    return reading
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
@@ -347,6 +359,35 @@ export async function fetchBOMWaterLevel(gaugeId: string): Promise<WaterLevel | 
 }
 
 /**
+ * Current reading (subject to maxAgeMs) plus history from a single BOM request
+ */
+export async function fetchBOMGaugeDetail(
+  gaugeId: string,
+  hoursBack: number = 24,
+  options: { maxAgeMs?: number; timeoutMs?: number } = {}
+): Promise<{ reading: WaterLevel | null; history: HistoryPoint[]; latestTimestamp: string | null }> {
+  try {
+    const observations = await fetchBOMLevelObservations(
+      gaugeId,
+      Math.max(hoursBack, LEVEL_LOOKBACK_HOURS),
+      options.timeoutMs ?? 10000
+    )
+    if (observations.length === 0) {
+      return { reading: null, history: [], latestTimestamp: null }
+    }
+    const latest = buildWaterLevel(gaugeId, observations)
+    const cutoff = Date.now() - hoursBack * 60 * 60 * 1000
+    const history = observations
+      .filter(o => new Date(o.timestamp).getTime() >= cutoff)
+      .map(o => ({ timestamp: o.timestamp, level: o.value }))
+    const reading = isWithinAge(latest.timestamp, options.maxAgeMs ?? BOM_MAX_READING_AGE_MS) ? latest : null
+    return { reading, history, latestTimestamp: latest.timestamp }
+  } catch {
+    return { reading: null, history: [], latestTimestamp: null }
+  }
+}
+
+/**
  * Fetch water level with response wrapper (for API compatibility)
  */
 export async function fetchBOMWaterLevelResponse(gaugeId: string): Promise<BOMWaterResponse> {
@@ -355,7 +396,7 @@ export async function fetchBOMWaterLevelResponse(gaugeId: string): Promise<BOMWa
     if (data) {
       return { success: true, data }
     }
-    return { success: false, data: null, error: 'No data returned' }
+    return { success: false, data: null, error: 'No recent data returned' }
   } catch (error) {
     return {
       success: false,
@@ -389,91 +430,51 @@ export async function fetchBOMWaterLevels(gaugeIds: string[]): Promise<Map<strin
 
 /**
  * Fetch water levels for multiple gauges (returns Map with response wrappers)
+ * Concurrency-limited to 5 requests at a time.
  */
 export async function fetchBOMMultipleGauges(gaugeIds: string[]): Promise<Map<string, BOMWaterResponse>> {
   const results = new Map<string, BOMWaterResponse>()
 
-  // Use Promise.allSettled to handle partial failures gracefully
-  const promises = gaugeIds.map(async (gaugeId) => {
-    const result = await fetchBOMWaterLevelResponse(gaugeId)
-    return { gaugeId, result }
-  })
-
-  const settled = await Promise.allSettled(promises)
-
-  for (let i = 0; i < settled.length; i++) {
-    const outcome = settled[i]
-    const gaugeId = gaugeIds[i]
-
-    if (outcome.status === 'fulfilled') {
-      results.set(gaugeId, outcome.value.result)
-    } else {
-      results.set(gaugeId, {
-        success: false,
-        data: null,
-        error: 'Request failed',
-      })
-    }
+  const batchSize = 5
+  for (let i = 0; i < gaugeIds.length; i += batchSize) {
+    const batch = gaugeIds.slice(i, i + batchSize)
+    const settled = await Promise.allSettled(batch.map(gaugeId => fetchBOMWaterLevelResponse(gaugeId)))
+    settled.forEach((outcome, index) => {
+      const gaugeId = batch[index]
+      if (outcome.status === 'fulfilled') {
+        results.set(gaugeId, outcome.value)
+      } else {
+        results.set(gaugeId, { success: false, data: null, error: 'Request failed' })
+      }
+    })
   }
 
   return results
 }
 
 /**
- * Fetch all Fitzroy Basin gauge levels from BOM
+ * Fetch all gauge levels from BOM
  */
 export async function fetchAllBOMWaterLevels(): Promise<WaterLevel[]> {
-  const allGaugeIds = GAUGE_STATIONS.map(s => s.id)
+  const allGaugeIds = GAUGE_STATIONS.filter(s => !s.isOffline).map(s => s.id)
   const resultsMap = await fetchBOMWaterLevels(allGaugeIds)
   return Array.from(resultsMap.values())
 }
 
 /**
- * Fetch historical water level data for a gauge
+ * Fetch historical water level data for a gauge (continuous series, ascending).
+ * Note BOM lags real time, so the most recent hours are usually missing.
  */
 export async function fetchBOMHistory(
   gaugeId: string,
   hoursBack: number = 24
 ): Promise<HistoryPoint[]> {
-  const featureOfInterest = GAUGE_TO_BOM_FEATURE[gaugeId] || gaugeId
-
   try {
-    const now = new Date()
-    const startTime = new Date(now.getTime() - hoursBack * 60 * 60 * 1000)
-
-    const temporalFilter = `om:phenomenonTime,${startTime.toISOString()}/${now.toISOString()}`
-
-    const url = buildSOS2Url({
-      featureOfInterest,
-      temporalFilter,
-    })
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20000)
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-      },
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      return []
-    }
-
-    const data = await response.json()
-    const observations = parseSOS2Response(data, gaugeId)
-
-    // Convert to HistoryPoint format and sort by timestamp
-    return observations
-      .map(obs => ({
-        timestamp: obs.timestamp,
-        level: obs.value,
-      }))
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    const observations = await fetchBOMLevelObservations(gaugeId, hoursBack, 20000)
+    return observations.map(obs => ({
+      timestamp: obs.timestamp,
+      level: obs.value,
+    }))
   } catch {
     return []
   }
@@ -524,95 +525,38 @@ export async function checkBOMServiceStatus(): Promise<boolean> {
 
 /**
  * Generic function to parse a specific parameter from WaterML2 XML response
+ * (any series, including aggregates - used for daily rainfall totals)
  */
 function parseWaterML2Parameter(xml: string, gaugeId: string, parameterName: string): BOMObservation[] {
   const observations: BOMObservation[] = []
-
-  try {
-    // Split XML into individual OM_Observation blocks
-    const obsPattern = /<om:OM_Observation[^>]*>[\s\S]*?<\/om:OM_Observation>/gi
-    const obsBlocks = xml.match(obsPattern) || []
-
-    for (const block of obsBlocks) {
-      // Check if this observation is for the requested parameter
-      if (!block.includes(parameterName)) {
-        continue
-      }
-
-      // Extract unit
-      const unitMatch = block.match(/uom\s+code="([^"]+)"/i)
-      const unit = unitMatch ? unitMatch[1] : ''
-
-      // Find all MeasurementTVP points with actual values
-      const tvpPattern = /<wml2:MeasurementTVP>([\s\S]*?)<\/wml2:MeasurementTVP>/gi
-      let tvpMatch
-
-      while ((tvpMatch = tvpPattern.exec(block)) !== null) {
-        const tvpContent = tvpMatch[1]
-
-        const timeMatch = tvpContent.match(/<wml2:time>([^<]+)<\/wml2:time>/i)
-        if (!timeMatch) continue
-
-        const valueMatch = tvpContent.match(/<wml2:value>([^<]+)<\/wml2:value>/i)
-        if (!valueMatch) continue
-
-        const value = parseFloat(valueMatch[1])
-
-        if (!isNaN(value)) {
-          observations.push({
-            gaugeId,
-            timestamp: new Date(timeMatch[1]).toISOString(),
-            value,
-            unit,
-          })
-        }
-      }
+  for (const series of parseWaterML2Series(xml)) {
+    if (!series.property.includes(parameterName)) continue
+    for (const point of series.points) {
+      observations.push({ gaugeId, timestamp: point.time, value: point.value, unit: series.unit })
     }
-  } catch (error) {
-    console.error(`[BOM] Error parsing ${parameterName} response:`, error)
   }
-
   return observations
 }
 
 /**
- * Fetch discharge (flow) data for a gauge from BOM
+ * Fetch discharge (flow) data for a gauge from BOM (continuous series).
+ * The timestamp reflects BOM's lag (typically 14-24h behind real time).
  */
 export async function fetchBOMDischarge(gaugeId: string): Promise<DischargeReading | null> {
-  const featureOfInterest = `http://bom.gov.au/waterdata/services/stations/${gaugeId}`
-
   try {
-    const url = buildSOS2Url({
-      featureOfInterest,
-      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.WATER_COURSE_DISCHARGE)}`,
+    const url = buildObservationUrl(gaugeId, BOM_PARAMS.WATER_COURSE_DISCHARGE, {
+      hoursBack: DISCHARGE_LOOKBACK_HOURS,
+      continuousOnly: true,
     })
+    const xml = await fetchXml(url, 15000)
+    if (!xml) return null
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/xml' },
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      return null
-    }
-
-    const xml = await response.text()
-    const observations = parseWaterML2Parameter(xml, gaugeId, BOM_PARAMS.WATER_COURSE_DISCHARGE)
-
+    const observations = extractContinuousObservations(xml, gaugeId, BOM_PARAMS.WATER_COURSE_DISCHARGE)
     if (observations.length === 0) {
       return null
     }
 
-    // Get most recent observation
-    const sorted = observations.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    )
-    const latest = sorted[0]
+    const latest = observations[observations.length - 1]
 
     // Determine unit - BOM returns 'cumec' or 'Ml/d'
     const unit: 'ML/d' | 'cumec' = latest.unit === 'cumec' ? 'cumec' : 'ML/d'
@@ -634,7 +578,6 @@ export async function fetchBOMDischarge(gaugeId: string): Promise<DischargeReadi
  * Fetch dam storage data from BOM
  */
 export async function fetchBOMDamStorage(stationId: string): Promise<DamStorageReading | null> {
-  const featureOfInterest = `http://bom.gov.au/waterdata/services/stations/${stationId}`
   const damStation = DAM_STATIONS.find(d => d.id === stationId)
 
   if (!damStation) {
@@ -643,59 +586,29 @@ export async function fetchBOMDamStorage(stationId: string): Promise<DamStorageR
   }
 
   try {
-    // Fetch storage volume
-    const volumeUrl = buildSOS2Url({
-      featureOfInterest,
-      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.STORAGE_VOLUME)}`,
+    const volumeUrl = buildObservationUrl(stationId, BOM_PARAMS.STORAGE_VOLUME, {
+      hoursBack: STORAGE_LOOKBACK_HOURS,
+      continuousOnly: true,
+    })
+    const levelUrl = buildObservationUrl(stationId, BOM_PARAMS.STORAGE_LEVEL, {
+      hoursBack: STORAGE_LOOKBACK_HOURS,
+      continuousOnly: true,
     })
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    const [volumeXml, levelXml] = await Promise.all([
+      fetchXml(volumeUrl, 15000),
+      fetchXml(levelUrl, 15000).catch(() => null),
+    ])
 
-    const volumeResponse = await fetch(volumeUrl, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/xml' },
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!volumeResponse.ok) {
+    if (!volumeXml) {
       return null
     }
 
-    const volumeXml = await volumeResponse.text()
-    const volumeObs = parseWaterML2Parameter(volumeXml, stationId, BOM_PARAMS.STORAGE_VOLUME)
+    const volumeObs = extractContinuousObservations(volumeXml, stationId, BOM_PARAMS.STORAGE_VOLUME)
+    const levelObs = levelXml ? extractContinuousObservations(levelXml, stationId, BOM_PARAMS.STORAGE_LEVEL) : []
 
-    // Fetch storage level
-    const levelUrl = buildSOS2Url({
-      featureOfInterest,
-      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.STORAGE_LEVEL)}`,
-    })
-
-    const levelController = new AbortController()
-    const levelTimeoutId = setTimeout(() => levelController.abort(), 15000)
-
-    const levelResponse = await fetch(levelUrl, {
-      signal: levelController.signal,
-      headers: { 'Accept': 'application/xml' },
-    })
-
-    clearTimeout(levelTimeoutId)
-
-    let levelObs: BOMObservation[] = []
-    if (levelResponse.ok) {
-      const levelXml = await levelResponse.text()
-      levelObs = parseWaterML2Parameter(levelXml, stationId, BOM_PARAMS.STORAGE_LEVEL)
-    }
-
-    // Get most recent values
-    const latestVolume = volumeObs.length > 0
-      ? volumeObs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0]
-      : null
-
-    const latestLevel = levelObs.length > 0
-      ? levelObs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0]
-      : null
+    const latestVolume = volumeObs.length > 0 ? volumeObs[volumeObs.length - 1] : null
+    const latestLevel = levelObs.length > 0 ? levelObs[levelObs.length - 1] : null
 
     if (!latestVolume) {
       return null
@@ -730,6 +643,7 @@ export async function fetchAllBOMDamStorage(): Promise<DamStorageReading[]> {
   const results: DamStorageReading[] = []
 
   for (const dam of DAM_STATIONS) {
+    if (dam.isOffline) continue
     const reading = await fetchBOMDamStorage(dam.id)
     if (reading) {
       results.push(reading)
@@ -741,31 +655,17 @@ export async function fetchAllBOMDamStorage(): Promise<DamStorageReading[]> {
 
 /**
  * Fetch rainfall data for a gauge from BOM
+ * (no temporal filter: BOM returns the latest value of each series, which for
+ * rainfall is the daily total to 9am)
  */
 export async function fetchBOMRainfall(gaugeId: string): Promise<RainfallReading | null> {
-  const featureOfInterest = `http://bom.gov.au/waterdata/services/stations/${gaugeId}`
-
   try {
-    const url = buildSOS2Url({
-      featureOfInterest,
-      observedProperty: `http://bom.gov.au/waterdata/services/parameters/${encodeURIComponent(BOM_PARAMS.RAINFALL)}`,
-    })
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/xml' },
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
+    const url = buildObservationUrl(gaugeId, BOM_PARAMS.RAINFALL)
+    const xml = await fetchXml(url, 15000)
+    if (!xml) {
       return null
     }
 
-    const xml = await response.text()
     const observations = parseWaterML2Parameter(xml, gaugeId, BOM_PARAMS.RAINFALL)
 
     if (observations.length === 0) {
@@ -839,6 +739,7 @@ const bomClient = {
   fetchAllBOMWaterLevels,
   fetchBOMHistory,
   fetchBOMHistoryResponse,
+  fetchBOMGaugeDetail,
   checkBOMServiceStatus,
   fetchBOMDischarge,
   fetchBOMDamStorage,

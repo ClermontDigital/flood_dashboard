@@ -1012,7 +1012,9 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                   )}
 
                   <div className="text-xs text-gray-500 mt-1">
-                    Source: {camera.source} | Updates every {camera.intervalMin ?? 15} min
+                    {camera.kind === 'community'
+                      ? `Source: ${camera.source}`
+                      : `Source: ${camera.source} | Updates every 15 min`}
                   </div>
                   <CameraShareButton cameraKey={camera.key} name={camera.description} />
                 </div>

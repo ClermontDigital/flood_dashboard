@@ -18,9 +18,22 @@ GAUGE is a Queensland flood monitoring dashboard deployed at `https://gauge.cler
 **CRITICAL:** The project deploys to **Singapore (`asia-southeast1`)**, NOT Australia.
 
 ```bash
-# Correct deployment command
-gcloud run deploy gauge-dashboard --source . --region asia-southeast1 --project clermontdigital-1741262269603 --allow-unauthenticated --timeout=300
+# Build (image goes to the Sydney Artifact Registry repo `gauge`, tagged latest + BUILD_ID)
+gcloud builds submit --config=cloudbuild.yaml --region=australia-southeast1 \
+  --substitutions=_MAPBOX_TOKEN=<public Mapbox token> --project=clermontdigital-1741262269603
+
+# Deploy that build (runtime identity + secrets from Secret Manager)
+gcloud run deploy gauge-dashboard --region=asia-southeast1 --project=clermontdigital-1741262269603 \
+  --image=australia-southeast1-docker.pkg.dev/clermontdigital-1741262269603/gauge/gauge-dashboard:<BUILD_ID> \
+  --service-account=gauge-run@clermontdigital-1741262269603.iam.gserviceaccount.com \
+  --set-secrets=QLDTRAFFIC_API_KEY=gauge-qldtraffic-api-key:latest,CRON_SECRET=gauge-cron-secret:latest,CAMERA_UPLOAD_KEY=gauge-camera-upload-key:latest \
+  --allow-unauthenticated --timeout=300
+
+# Then run the cron once so Firestore is refreshed by the new code
+gcloud scheduler jobs run gauge-fetch-water-data-prod --location=asia-southeast1 --project=clermontdigital-1741262269603
 ```
+
+Cloud Run stays in Singapore because Cloud Run domain mapping isn't available in Sydney (Firestore is in australia-southeast1).
 
 **Service name:** `gauge-dashboard` (not `gauge`)
 
@@ -99,10 +112,17 @@ Any component using `useSearchParams()` must be wrapped in `<Suspense>`. The Das
 - Never redirect from a page that has generateMetadata - crawlers won't see the tags
 
 ### 4. Cron Authentication
-Cron endpoints accept:
-- `x-cron-secret` header matching `CRON_SECRET` env var
-- `User-Agent: Google-Cloud-Scheduler`
-- No auth in development mode
+Cron endpoints accept only the `x-cron-secret` header matching `CRON_SECRET` (constant-time compare,
+`src/lib/cron-auth.ts`). The Cloud Scheduler job sends that header. User-Agent is not trusted.
+Without `CRON_SECRET`, requests are allowed only in development.
+
+### 7. Community Cameras
+Hand-curated in `src/lib/community-cameras.ts` (`public` = on the map, `unlisted` = only via its
+`/camera/<id>` link, `hidden` = nowhere). The latest picture per camera lives in Firestore
+(`communityCameraImages/<id>`) and is uploaded with
+`POST /api/cameras/<id>/upload` (JPEG body, `x-camera-key: CAMERA_UPLOAD_KEY`, optional `x-taken-at`).
+Every camera, council or community, has a share link `/camera/<key>` whose link preview uses the
+camera's latest picture.
 
 ### 5. Firestore Uptime Tracking
 Two tracking methods with different baselines:
@@ -166,9 +186,9 @@ npm run build        # Production build (generates static gauge pages)
 ## Useful Commands
 
 ```bash
-# Run uptime backfill manually
+# Run uptime backfill manually (needs the cron secret)
 curl -X POST "https://gauge.clermont.digital/api/cron/backfill-uptime" \
-  -H "User-Agent: Google-Cloud-Scheduler"
+  -H "x-cron-secret: $(gcloud secrets versions access latest --secret=gauge-cron-secret --project=clermontdigital-1741262269603)"
 
 # Check deployed services
 gcloud run services list --project clermontdigital-1741262269603

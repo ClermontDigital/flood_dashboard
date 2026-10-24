@@ -1,32 +1,27 @@
 import { NextResponse } from 'next/server'
 import { getCommunityCameraConfig } from '@/lib/community-cameras'
 import { isJpeg, markCameraUnreachable, MAX_IMAGE_BYTES, saveCameraImage } from '@/lib/camera-store'
-import { secretMatches } from '@/lib/secrets'
+import { isCameraUploadAuthorized } from '@/lib/camera-upload-token'
 
 export const dynamic = 'force-dynamic'
-
-function isAuthorized(request: Request): boolean {
-  const expected = process.env.CAMERA_UPLOAD_KEY
-  if (!expected) return process.env.NODE_ENV === 'development'
-  return secretMatches(request.headers.get('x-camera-key'), expected)
-}
 
 /**
  * POST /api/cameras/<id>/upload — store a community camera's latest picture.
  *
  *   Body: the JPEG (Content-Type: image/jpeg), up to 900 KB
- *   x-camera-key: upload key (CAMERA_UPLOAD_KEY, from Secret Manager)
+ *   x-camera-key: upload key (CAMERA_UPLOAD_KEY, from Secret Manager), or
+ *   x-upload-token: that camera's token from its private upload link
  *   x-taken-at:   optional ISO time the picture was taken (defaults to now)
  *
  * Or send JSON {"status":"unreachable"} to record a failed capture; the last picture stays
  * and the site shows "Last seen …".
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isAuthorized(request)) {
+  const { id } = await params
+  if (!isCameraUploadAuthorized(request, id)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { id } = await params
   if (!getCommunityCameraConfig(id)) {
     return NextResponse.json({ error: 'Unknown camera' }, { status: 404 })
   }

@@ -422,6 +422,18 @@ function RainRadarLayer({ enabled }: { enabled: boolean }) {
 }
 
 // Component to handle map view changes - only flies when values actually change
+// flyTo silently does nothing if the map hasn't been laid out yet (zero size, which happens on
+// phones while the page is still settling), so jump straight there in that case
+function moveMap(map: L.Map, target: [number, number], zoom: number) {
+  map.invalidateSize()
+  const size = map.getSize()
+  if (size.x === 0 || size.y === 0) {
+    map.setView(target, zoom, { animate: false })
+  } else {
+    map.flyTo(target, zoom, { duration: 0.5 })
+  }
+}
+
 function MapController({ center, selectedGaugeId, gauges, searchedLocation, focus }: {
   center?: [number, number]
   selectedGaugeId?: string
@@ -445,7 +457,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       prevGaugeId.current = selectedGaugeId
       prevSearchLat.current = searchedLocation?.lat
       prevCenter.current = center
-      map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom), { duration: 0.5 })
+      moveMap(map, [focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom))
       return
     }
 
@@ -453,7 +465,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     if (searchedLocation && searchedLocation.lat !== prevSearchLat.current) {
       prevSearchLat.current = searchedLocation.lat
       prevCenter.current = center
-      map.flyTo([searchedLocation.lat, searchedLocation.lng], 14, { duration: 0.5 })
+      moveMap(map, [searchedLocation.lat, searchedLocation.lng], 14)
       return
     }
 
@@ -463,7 +475,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       if (gauge) {
         prevGaugeId.current = selectedGaugeId
         prevCenter.current = center
-        map.flyTo([gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), { duration: 0.5 })
+        moveMap(map, [gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12))
         return
       }
     }
@@ -475,7 +487,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       const selected = selectedGaugeId ? gauges.find(g => g.station.id === selectedGaugeId) : undefined
       const atSelectedGauge = selected && selected.station.lat === center[0] && selected.station.lng === center[1]
       if (!atSelectedGauge) {
-        map.flyTo(center, DEFAULT_ZOOM, { duration: 0.5 })
+        moveMap(map, center, DEFAULT_ZOOM)
       }
     }
 

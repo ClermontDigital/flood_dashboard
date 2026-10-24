@@ -13,6 +13,7 @@
  */
 
 import { NextResponse, NextRequest } from 'next/server'
+import { OFFICIAL_FLOOD_THRESHOLDS } from '@/lib/flood-thresholds'
 import { jsonResponse } from '@/lib/http'
 import type { WaterLevelsResponse, GaugeData, WaterLevel, FloodThresholds, DischargeReading, RainfallReading, DamStorageReading } from '@/lib/types'
 import { GAUGE_STATIONS } from '@/lib/constants'
@@ -31,18 +32,8 @@ import { getWaterLevelData, getGaugeUptimeSummary } from '@/lib/firestore'
 export const revalidate = 300
 
 // Known flood thresholds for gauges
-const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
-  '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 }, // Sandy Creek @ Clermont
-  '130401A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Isaac River @ Yatton
-  '130410A': { minor: 6.0, moderate: 8.0, major: 10.0 }, // Isaac River @ Deverill
-  '130209A': { minor: 5.0, moderate: 7.0, major: 9.0 }, // Nogoa @ Craigmore
-  '130219A': { minor: 4.5, moderate: 6.5, major: 8.5 }, // Nogoa @ Duck Ponds
-  '130106A': { minor: 8.0, moderate: 10.0, major: 12.0 }, // Mackenzie @ Bingegang
-  '130105B': { minor: 7.0, moderate: 9.0, major: 11.0 }, // Mackenzie @ Coolmaringa
-  '130113A': { minor: 6.0, moderate: 8.0, major: 10.0 }, // Mackenzie @ Rileys
-  '130004A': { minor: 7.0, moderate: 8.5, major: 10.0 }, // Fitzroy @ The Gap
-  '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 }, // Fitzroy @ Rockhampton
-}
+// Official BOM flood levels, shared across routes (src/lib/flood-thresholds.ts)
+const FLOOD_THRESHOLDS = OFFICIAL_FLOOD_THRESHOLDS
 
 const WMIP_MAX_READING_AGE_MS = 24 * 60 * 60 * 1000
 
@@ -86,7 +77,7 @@ async function fetchWaterLevelDataDirect(): Promise<{
         const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
         const enrichedData: WaterLevel = {
           ...result.data,
-          status: calculateStatus(result.data.level, thresholds),
+          status: calculateStatus(result.data.level, thresholds, result.data.changeRate),
         }
         waterLevelMap.set(gaugeId, enrichedData)
         wmipSuccessCount++
@@ -109,7 +100,7 @@ async function fetchWaterLevelDataDirect(): Promise<{
           const thresholds = FLOOD_THRESHOLDS[gaugeId] || null
           const enrichedData: WaterLevel = {
             ...result.data,
-            status: calculateStatus(result.data.level, thresholds),
+            status: calculateStatus(result.data.level, thresholds, result.data.changeRate),
           }
           waterLevelMap.set(gaugeId, enrichedData)
           bomSuccessCount++
@@ -213,7 +204,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return {
       station,
       // Status is recomputed here so readings stored by any cron version follow the current rules
-      reading: reading && isReadingFresh(reading) ? { ...reading, status: calculateStatus(reading.level, thresholds) } : null,
+      reading: reading && isReadingFresh(reading) ? { ...reading, status: calculateStatus(reading.level, thresholds, reading.changeRate) } : null,
       thresholds,
       discharge: dischargeMap.get(station.id) || null,
       rainfall: rainfallMap.get(station.id) || null,

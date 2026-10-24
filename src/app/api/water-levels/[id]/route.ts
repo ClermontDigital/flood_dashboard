@@ -22,6 +22,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { OFFICIAL_FLOOD_THRESHOLDS } from '@/lib/flood-thresholds'
 import type { GaugeStation, WaterLevel, HistoryPoint, FloodThresholds } from '@/lib/types'
 import { GAUGE_STATIONS, GAUGE_ID_ALIASES } from '@/lib/constants'
 import { calculateStatus } from '@/lib/utils'
@@ -46,18 +47,8 @@ interface GaugeDetailResponse {
 }
 
 // Known flood thresholds for gauges
-const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
-  '130207A': { minor: 4.5, moderate: 6.0, major: 8.0 },
-  '130401A': { minor: 5.0, moderate: 7.0, major: 9.0 },
-  '130410A': { minor: 6.0, moderate: 8.0, major: 10.0 },
-  '130209A': { minor: 5.0, moderate: 7.0, major: 9.0 },
-  '130219A': { minor: 4.5, moderate: 6.5, major: 8.5 },
-  '130106A': { minor: 8.0, moderate: 10.0, major: 12.0 },
-  '130105B': { minor: 7.0, moderate: 9.0, major: 11.0 },
-  '130113A': { minor: 6.0, moderate: 8.0, major: 10.0 },
-  '130004A': { minor: 7.0, moderate: 8.5, major: 10.0 },
-  '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 },
-}
+// Official BOM flood levels, shared across routes (src/lib/flood-thresholds.ts)
+const FLOOD_THRESHOLDS = OFFICIAL_FLOOD_THRESHOLDS
 
 const HISTORY_HOURS = 24
 const STALE_AFTER_MS = 3 * 60 * 60 * 1000
@@ -85,7 +76,7 @@ async function loadGaugeDetail(station: GaugeStation): Promise<Omit<GaugeDetailR
   if (wmip.reading) {
     return {
       station,
-      reading: { ...wmip.reading, status: calculateStatus(wmip.reading.level, thresholds) },
+      reading: { ...wmip.reading, status: calculateStatus(wmip.reading.level, thresholds, wmip.reading.changeRate) },
       thresholds,
       history: wmip.history,
       source: 'wmip',
@@ -103,7 +94,7 @@ async function loadGaugeDetail(station: GaugeStation): Promise<Omit<GaugeDetailR
     if (bom.reading) {
       return {
         station,
-        reading: { ...bom.reading, status: calculateStatus(bom.reading.level, thresholds) },
+        reading: { ...bom.reading, status: calculateStatus(bom.reading.level, thresholds, bom.reading.changeRate) },
         thresholds,
         history: bom.history,
         source: 'bom',

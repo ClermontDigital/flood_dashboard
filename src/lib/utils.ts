@@ -8,13 +8,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Calculate flood status based on water level and thresholds
-export function calculateStatus(level: number, thresholds: FloodThresholds | null): FloodStatus {
-  if (!thresholds) return 'safe'
+// A rising gauge shows WATCH before it reaches a flood level, so a creek climbing fast never reads "Safe"
+const RISING_M_PER_HOUR = 0.05     // Same cut-off as the "rising" trend
+const APPROACH_MARGIN_M = 1.0      // Within this of the minor flood level while rising
+const FAST_RISE_M_PER_HOUR = 0.3   // Gauges without official flood levels
 
-  if (level >= thresholds.major) return 'danger'
-  if (level >= thresholds.moderate) return 'warning'
-  if (level >= thresholds.minor) return 'watch'
+// Calculate flood status based on water level, official flood levels and rate of change (m/h)
+export function calculateStatus(level: number, thresholds: FloodThresholds | null, changeRate = 0): FloodStatus {
+  if (thresholds) {
+    if (level >= thresholds.major) return 'danger'
+    if (level >= thresholds.moderate) return 'warning'
+    if (level >= thresholds.minor) return 'watch'
+    if (changeRate >= RISING_M_PER_HOUR && level >= thresholds.minor - APPROACH_MARGIN_M) return 'watch'
+    return 'safe'
+  }
+  // No official flood levels: flag a fast rise rather than calling it safe
+  if (changeRate >= FAST_RISE_M_PER_HOUR) return 'watch'
   return 'safe'
 }
 

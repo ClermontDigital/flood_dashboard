@@ -28,7 +28,7 @@ export const COMMUNITY_CAMERAS: CommunityCameraConfig[] = [
     // Weir on Sandy Creek in Clermont (OpenStreetMap node 1982839086); confirm with the owner
     lat: -22.82069,
     lng: 147.62731,
-    donor: 'K Barnes',
+    donor: 'K Burns',
     intervalMin: 15,
     visibility: 'unlisted',
   },

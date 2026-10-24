@@ -32,6 +32,7 @@ interface FloodMapProps {
   floodExtent?: { set: FloodExtentSet; level: FloodExtentLevel } | null
   focus?: MapFocus | null
   openCameraKey?: string // Open this camera's popup once (camera share links)
+  onSelectCamera?: (camera: FloodCamera) => void // A camera's popup was opened
 }
 
 // An explicit "show me this place" request (e.g. a search result). The key changes on every
@@ -547,7 +548,7 @@ function MapLayerToggle({
   )
 }
 
-function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true, sensors = [], showSensors = true, centres = [], showCentres = true, fuelSites = [], showFuel = false, floodExtent = null, focus = null, openCameraKey }: FloodMapProps) {
+function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true, sensors = [], showSensors = true, centres = [], showCentres = true, fuelSites = [], showFuel = false, floodExtent = null, focus = null, openCameraKey, onSelectCamera }: FloodMapProps) {
   const openedCameraPopup = useRef(false)
   const mapCenter = center || CLERMONT_CENTER
   const [mapLayer, setMapLayer] = useState<MapLayerType>(() =>
@@ -994,14 +995,17 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
               icon={cameraIcon}
               title={`Flood camera: ${camera.description}`}
               zIndexOffset={1000} // Cameras often sit on a closed crossing; keep them above road markers
-              eventHandlers={camera.key === openCameraKey ? {
-                add: (e) => {
-                  if (openedCameraPopup.current) return
-                  openedCameraPopup.current = true
-                  // Let the map finish flying to the camera first
-                  setTimeout(() => e.target.openPopup(), 900)
-                },
-              } : undefined}
+              eventHandlers={{
+                popupopen: () => onSelectCamera?.(camera),
+                ...(camera.key === openCameraKey && {
+                  add: (e: L.LeafletEvent) => {
+                    if (openedCameraPopup.current) return
+                    openedCameraPopup.current = true
+                    // Let the map finish flying to the camera first
+                    setTimeout(() => e.target.openPopup(), 900)
+                  },
+                }),
+              }}
             >
               <Popup maxWidth={360} minWidth={280} autoPanPadding={[50, 50]}>
                 <div className="p-1">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { GaugeData, RiverSystem } from '@/lib/types'
 import { StatusBadge } from './StatusBadge'
@@ -42,6 +42,26 @@ const RIVER_ORDER: RiverSystem[] = [
   // Channel Country / Outback
   'cooper', 'diamantina', 'warrego', 'paroo',
 ]
+
+type BasinFilter = 'danger' | 'warning' | 'watch' | 'rising'
+
+// Summary pills, which double as filters for the gauge cards
+const BASIN_PILLS: { filter: BasinFilter; label: string; className: string }[] = [
+  { filter: 'danger', label: 'Danger', className: 'bg-red-100 text-red-800' },
+  { filter: 'warning', label: 'Warning', className: 'bg-orange-100 text-orange-800' },
+  { filter: 'watch', label: 'Watch', className: 'bg-yellow-100 text-yellow-800' },
+  { filter: 'rising', label: 'Rising', className: 'bg-blue-100 text-blue-800' },
+]
+
+function matchesFilter(gauge: GaugeData, filter: BasinFilter | null): boolean {
+  const reading = gauge.reading
+  if (!reading) return false
+  // "Rising" counts only rising gauges that are still safe (elevated ones have their own pill)
+  if (filter === 'rising') return reading.trend === 'rising' && reading.status === 'safe'
+  if (filter) return reading.status === filter
+  // No filter: gauges with an elevated status or a rising trend
+  return ['watch', 'warning', 'danger'].includes(reading.status) || reading.trend === 'rising'
+}
 
 const RIVER_LABELS: Record<RiverSystem, string> = {
   // Fitzroy Basin
@@ -107,6 +127,8 @@ const RIVER_LABELS: Record<RiverSystem, string> = {
 }
 
 export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoading }: BasinOverviewProps) {
+  const [filter, setFilter] = useState<BasinFilter | null>(null)
+
   // Group gauges by river system
   const groupedGauges = useMemo(() => {
     const groups = new Map<RiverSystem, GaugeData[]>()
@@ -166,40 +188,38 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
 
       {/* Status Summary Pills */}
       <div className="flex flex-wrap gap-2 mb-3">
-        {basinStats.statusCounts.danger > 0 && (
-          <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-xs font-medium">
-            {basinStats.statusCounts.danger} Danger
-          </span>
-        )}
-        {basinStats.statusCounts.warning > 0 && (
-          <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded-full text-xs font-medium">
-            {basinStats.statusCounts.warning} Warning
-          </span>
-        )}
-        {basinStats.statusCounts.watch > 0 && (
-          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
-            {basinStats.statusCounts.watch} Watch
-          </span>
-        )}
-        {basinStats.risingSafe > 0 && (
-          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-            {basinStats.risingSafe} Rising
-          </span>
-        )}
+        {BASIN_PILLS.map((pill) => {
+          const count = pill.filter === 'rising' ? basinStats.risingSafe : basinStats.statusCounts[pill.filter]
+          const active = filter === pill.filter
+          // Keep the active pill visible even if its count drops to zero, so it can be cleared
+          if (count === 0 && !active) return null
+          return (
+            <button
+              key={pill.filter}
+              type="button"
+              onClick={() => setFilter(active ? null : pill.filter)}
+              aria-pressed={active}
+              title={active ? 'Show all alerts' : `Show only ${pill.label.toLowerCase()} gauges`}
+              className={cn(
+                'px-2 py-0.5 rounded-full text-xs font-medium transition',
+                pill.className,
+                active ? 'ring-2 ring-current' : 'hover:ring-1 hover:ring-current',
+                filter && !active && 'opacity-50'
+              )}
+            >
+              {count} {pill.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Horizontal scrolling gauge cards by river system - show alerts and rising gauges */}
-      {(basinStats.statusCounts.watch + basinStats.statusCounts.warning + basinStats.statusCounts.danger + basinStats.rising) > 0 ? (
+      {gauges.some((g) => matchesFilter(g, filter)) ? (
         <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
           {RIVER_ORDER.map(river => {
             const riverGauges = groupedGauges.get(river) || []
-            // Show gauges with elevated status OR rising trend
-            const alertGauges = riverGauges.filter(g =>
-              g.reading && (
-                ['watch', 'warning', 'danger'].includes(g.reading.status) ||
-                g.reading.trend === 'rising'
-              )
-            ).sort((a, b) => {
+            // Show gauges with elevated status OR rising trend (or just those matching the pill)
+            const alertGauges = riverGauges.filter(g => matchesFilter(g, filter)).sort((a, b) => {
               const priority: Record<string, number> = { danger: 0, warning: 1, watch: 2, safe: 3 }
               return (priority[a.reading?.status || 'safe'] ?? 3) - (priority[b.reading?.status || 'safe'] ?? 3)
             })
@@ -241,7 +261,7 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
         </div>
       ) : (
         <div className="py-3 text-center text-sm text-gray-500">
-          All monitored gauges are at safe levels
+          {filter ? 'No gauges with this status' : 'All monitored gauges are at safe levels'}
         </div>
       )}
 

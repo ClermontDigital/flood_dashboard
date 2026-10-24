@@ -30,7 +30,7 @@ export const COMMUNITY_CAMERAS: CommunityCameraConfig[] = [
     lng: 147.62731,
     donor: 'K Burns',
     intervalMin: 15,
-    visibility: 'unlisted',
+    visibility: 'public',
   },
 ]
 

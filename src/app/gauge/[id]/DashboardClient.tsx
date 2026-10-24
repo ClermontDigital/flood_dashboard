@@ -81,6 +81,8 @@ interface DashboardClientProps {
 export default function DashboardClient({ initialGaugeId, initialCamera }: DashboardClientProps) {
   // Initialize with the gauge ID from prop (if provided) or null (restored later from URL/localStorage)
   const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(initialGaugeId ?? null)
+  // Camera whose popup was opened last; its location drives the weather panel until a gauge is chosen
+  const [selectedCamera, setSelectedCamera] = useState<FloodCamera | null>(initialCamera ?? null)
   const [mapCenter, setMapCenter] = useState<[number, number]>(QLD_CENTER)
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null)
@@ -208,16 +210,26 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
   // Get selected gauge data from main list (for quick access)
   const selectedGaugeBasic = waterLevels?.gauges?.find((g) => g.station.id === selectedGaugeId)
 
-  // Fetch rainfall data - statewide by default, location-specific when gauge selected
-  const rainfallUrl = useMemo(() => {
-    if (selectedGaugeBasic) {
-      // Location-specific rainfall for selected gauge
-      const name = selectedGaugeBasic.station.name.split('@')[0].trim() || selectedGaugeBasic.station.name
-      return `/api/rainfall?lat=${selectedGaugeBasic.station.lat}&lng=${selectedGaugeBasic.station.lng}&name=${encodeURIComponent(name)}`
+  // Weather and rainfall follow the latest selection: an opened camera, otherwise the selected gauge
+  const weatherPlace = useMemo(() => {
+    if (selectedCamera) {
+      // "Clermont Weir (Sandy Creek Weir)" -> "Clermont Weir"
+      return { lat: selectedCamera.lat, lng: selectedCamera.lng, name: selectedCamera.description.replace(/\s*\(.*\)$/, '') }
     }
-    // Statewide aggregated rainfall
-    return '/api/rainfall'
-  }, [selectedGaugeBasic])
+    if (selectedGaugeBasic) {
+      return {
+        lat: selectedGaugeBasic.station.lat,
+        lng: selectedGaugeBasic.station.lng,
+        name: selectedGaugeBasic.station.name.split('@')[0].trim() || selectedGaugeBasic.station.name,
+      }
+    }
+    return null
+  }, [selectedCamera, selectedGaugeBasic])
+
+  // Fetch rainfall data - statewide by default, location-specific when a gauge or camera is selected
+  const rainfallUrl = weatherPlace
+    ? `/api/rainfall?lat=${weatherPlace.lat}&lng=${weatherPlace.lng}&name=${encodeURIComponent(weatherPlace.name)}`
+    : '/api/rainfall'
 
   const { data: rainfallData, isLoading: rainfallLoading } = useSWR<StatewideRainfallAPIResponse | LocationRainfallAPIResponse>(
     rainfallUrl,
@@ -297,18 +309,8 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
   // All gauges
   const allGauges = waterLevels?.gauges || []
 
-  // Get weather location based on selected gauge or map center
-  const weatherLocation = useMemo(() => {
-    if (selectedGaugeBasic) {
-      return {
-        lat: selectedGaugeBasic.station.lat,
-        lng: selectedGaugeBasic.station.lng,
-        name: selectedGaugeBasic.station.name.split('@')[0].trim() || selectedGaugeBasic.station.name
-      }
-    }
-    // Default to map center (Queensland center)
-    return { lat: mapCenter[0], lng: mapCenter[1], name: 'Queensland' }
-  }, [selectedGaugeBasic, mapCenter])
+  // Weather for the selected camera or gauge, otherwise the map center (Queensland center)
+  const weatherLocation = weatherPlace ?? { lat: mapCenter[0], lng: mapCenter[1], name: 'Queensland' }
 
   // Fetch BOM weather data - dynamic based on selected gauge
   const weatherUrl = `/api/weather?lat=${weatherLocation.lat}&lng=${weatherLocation.lng}&name=${encodeURIComponent(weatherLocation.name)}`
@@ -345,6 +347,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
     // Only gauge results select a gauge; towns and rivers just move the map
     if (result.type === 'gauge' && result.id) {
       setSelectedGaugeId(result.id)
+      setSelectedCamera(null)
       setSearchedLocation(null)
     }
   }, [])
@@ -354,11 +357,13 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
     setSearchedLocation(location)
     setMapCenter([location.lat, location.lng])
     setSelectedGaugeId(null) // Clear gauge selection to show nearby gauges
+    setSelectedCamera(null)
   }, [])
 
   // Handle gauge selection from map
   const handleGaugeSelect = useCallback((id: string) => {
     setSelectedGaugeId(id)
+    setSelectedCamera(null)
     setSearchedLocation(null)
   }, [])
 
@@ -486,6 +491,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                   floodExtent={floodExtent}
                   focus={mapFocus}
                   openCameraKey={initialCamera?.key}
+                  onSelectCamera={setSelectedCamera}
                 />
               </div>
 

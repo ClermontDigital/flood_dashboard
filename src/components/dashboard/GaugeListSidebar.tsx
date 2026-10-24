@@ -24,6 +24,19 @@ const STATUS_PRIORITY: Record<FloodStatus, number> = {
   offline: 4,
 }
 
+// Summary pills, which double as filters for the list
+const STATUS_PILLS: { status: FloodStatus; label: string; className: string; alwaysShow?: boolean }[] = [
+  { status: 'danger', label: 'Danger', className: 'font-bold bg-red-100 text-red-800' },
+  { status: 'warning', label: 'Warning', className: 'font-bold bg-orange-100 text-orange-800' },
+  { status: 'watch', label: 'Watch', className: 'font-bold bg-yellow-100 text-yellow-800' },
+  { status: 'safe', label: 'Safe', className: 'font-medium bg-green-100 text-green-800', alwaysShow: true },
+  { status: 'offline', label: 'Offline', className: 'font-medium bg-gray-200 text-gray-700' },
+]
+
+function gaugeStatus(gauge: GaugeData): FloodStatus {
+  return gauge.station.isOffline ? 'offline' : (gauge.reading?.status || 'safe')
+}
+
 export function GaugeListSidebar({
   gauges,
   selectedGaugeId,
@@ -33,6 +46,7 @@ export function GaugeListSidebar({
 }: GaugeListSidebarProps) {
   const [viewMode, setViewMode] = useState<'status' | 'region'>('status')
   const [expandedRegions, setExpandedRegions] = useState<Set<RiverSystem>>(new Set())
+  const [statusFilter, setStatusFilter] = useState<FloodStatus | null>(null)
 
   // Calculate status summary
   const statusSummary = useMemo(() => {
@@ -44,29 +58,26 @@ export function GaugeListSidebar({
       offline: 0,
     }
     gauges.forEach((gauge) => {
-      if (gauge.station.isOffline) {
-        summary.offline++
-      } else {
-        const status = gauge.reading?.status || 'safe'
-        summary[status]++
-      }
+      summary[gaugeStatus(gauge)]++
     })
     return summary
   }, [gauges])
 
+  // Gauges matching the selected status pill (all gauges when none is selected)
+  const filteredGauges = useMemo(
+    () => statusFilter ? gauges.filter((gauge) => gaugeStatus(gauge) === statusFilter) : gauges,
+    [gauges, statusFilter]
+  )
+
   // Sort gauges by status priority
   const sortedByStatus = useMemo(() => {
-    return [...gauges].sort((a, b) => {
-      const statusA: FloodStatus = a.station.isOffline ? 'offline' : (a.reading?.status || 'safe')
-      const statusB: FloodStatus = b.station.isOffline ? 'offline' : (b.reading?.status || 'safe')
-      return STATUS_PRIORITY[statusA] - STATUS_PRIORITY[statusB]
-    })
-  }, [gauges])
+    return [...filteredGauges].sort((a, b) => STATUS_PRIORITY[gaugeStatus(a)] - STATUS_PRIORITY[gaugeStatus(b)])
+  }, [filteredGauges])
 
   // Group gauges by river system
   const groupedByRegion = useMemo(() => {
     const groups = new Map<RiverSystem, GaugeData[]>()
-    gauges.forEach((gauge) => {
+    filteredGauges.forEach((gauge) => {
       const region = gauge.station.riverSystem
       if (!groups.has(region)) {
         groups.set(region, [])
@@ -75,14 +86,10 @@ export function GaugeListSidebar({
     })
     // Sort each group by status
     groups.forEach((regionGauges) => {
-      regionGauges.sort((a, b) => {
-        const statusA: FloodStatus = a.station.isOffline ? 'offline' : (a.reading?.status || 'safe')
-        const statusB: FloodStatus = b.station.isOffline ? 'offline' : (b.reading?.status || 'safe')
-        return STATUS_PRIORITY[statusA] - STATUS_PRIORITY[statusB]
-      })
+      regionGauges.sort((a, b) => STATUS_PRIORITY[gaugeStatus(a)] - STATUS_PRIORITY[gaugeStatus(b)])
     })
     return groups
-  }, [gauges])
+  }, [filteredGauges])
 
   // Get worst status for a region (excluding offline gauges from severity calculation)
   const getRegionStatus = (regionGauges: GaugeData[]): FloodStatus => {
@@ -114,8 +121,12 @@ export function GaugeListSidebar({
     })
   }
 
-  // Expand all regions that have warnings
-  const expandWarningRegions = () => {
+  // Expand all regions that have warnings (or, when filtering, every region with a match)
+  const expandWarningRegions = (filter = statusFilter) => {
+    if (filter) {
+      setExpandedRegions(new Set(gauges.filter((g) => gaugeStatus(g) === filter).map((g) => g.station.riverSystem)))
+      return
+    }
     const warningRegions = new Set<RiverSystem>()
     gauges.forEach((gauge) => {
       const status = gauge.reading?.status
@@ -124,6 +135,12 @@ export function GaugeListSidebar({
       }
     })
     setExpandedRegions(warningRegions)
+  }
+
+  const toggleStatusFilter = (status: FloodStatus) => {
+    const next = statusFilter === status ? null : status
+    setStatusFilter(next)
+    if (viewMode === 'region') expandWarningRegions(next)
   }
 
   if (isLoading) {
@@ -161,35 +178,34 @@ export function GaugeListSidebar({
       <div className="p-4 border-b border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-900">
-            Gauges ({gauges.length})
+            Gauges ({statusFilter ? `${filteredGauges.length} of ${gauges.length}` : gauges.length})
           </h2>
         </div>
 
         {/* Status Summary Pills */}
         <div className="flex flex-wrap gap-2 mb-3">
-          {statusSummary.danger > 0 && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
-              {statusSummary.danger} Danger
-            </span>
-          )}
-          {statusSummary.warning > 0 && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800">
-              {statusSummary.warning} Warning
-            </span>
-          )}
-          {statusSummary.watch > 0 && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800">
-              {statusSummary.watch} Watch
-            </span>
-          )}
-          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-            {statusSummary.safe} Safe
-          </span>
-          {statusSummary.offline > 0 && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700">
-              {statusSummary.offline} Offline
-            </span>
-          )}
+          {STATUS_PILLS.map(({ status, label, className, alwaysShow }) => {
+            const active = statusFilter === status
+            // Keep the active pill visible even if its count drops to zero, so it can be cleared
+            if (!alwaysShow && statusSummary[status] === 0 && !active) return null
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => toggleStatusFilter(status)}
+                aria-pressed={active}
+                title={active ? 'Show all gauges' : `Show only ${label.toLowerCase()} gauges`}
+                className={cn(
+                  'inline-flex items-center px-2 py-1 rounded-full text-xs transition',
+                  className,
+                  active ? 'ring-2 ring-current' : 'hover:ring-1 hover:ring-current',
+                  statusFilter && !active && 'opacity-50'
+                )}
+              >
+                {statusSummary[status]} {label}
+              </button>
+            )
+          })}
         </div>
 
         {/* View Toggle */}
@@ -226,6 +242,9 @@ export function GaugeListSidebar({
       <div className="max-h-[500px] overflow-y-auto">
         {viewMode === 'status' ? (
           <div className="p-3 space-y-2">
+            {sortedByStatus.length === 0 && (
+              <p className="py-6 text-center text-sm text-gray-500">No gauges with this status</p>
+            )}
             {sortedByStatus.map((gauge) => (
               <GaugeCard
                 key={gauge.station.id}

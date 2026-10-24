@@ -505,7 +505,11 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       }
     }
 
-    prevGaugeId.current = selectedGaugeId
+    // Don't mark a selection as handled until its gauge has loaded, or a link opened before
+    // the data arrives never zooms in
+    if (!selectedGaugeId || gauges.some(g => g.station.id === selectedGaugeId)) {
+      prevGaugeId.current = selectedGaugeId
+    }
     prevSearchLat.current = searchedLocation?.lat
   }, [center, selectedGaugeId, gauges, map, searchedLocation, focus])
 

@@ -254,9 +254,20 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
     const council = (councilRoadsData?.events || []).filter(
       (e) => !e.startTime || new Date(e.startTime).getTime() <= fetchedAt
     )
+    // Normalise so "Clermont Rubyvale Rd" matches "Clermont Rubyvale Road"
+    const normRoad = (r: string) => r.toLowerCase()
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .replace(/\b(road|rd)\b/g, 'rd')
+      .replace(/\b(highway|hwy)\b/g, 'hwy')
+      .replace(/\b(street|st)\b/g, 'st')
+      .replace(/\b(drive|dr)\b/g, 'dr')
+      .replace(/\b(avenue|ave)\b/g, 'ave')
+      .replace(/\b(developmental|dev)\b/g, 'dev')
+      .replace(/\s+/g, ' ')
+      .trim()
     const sameRoad = (a: string, b: string) => {
-      const x = a.toLowerCase().trim()
-      const y = b.toLowerCase().trim()
+      const x = normRoad(a)
+      const y = normRoad(b)
       return !!x && !!y && (x.includes(y) || y.includes(x))
     }
     const qld = (roadClosuresData?.events || []).filter(

@@ -249,8 +249,8 @@ function CameraImage({ src, alt, onClick }: { src: string; alt: string; onClick:
     <img
       src={src}
       alt={alt}
-      className="w-full rounded mb-1 cursor-pointer hover:opacity-90 transition-opacity"
-      style={{ maxHeight: '200px', objectFit: 'cover' }}
+      className="block w-full rounded mb-1 cursor-pointer hover:opacity-90 transition-opacity bg-gray-100"
+      style={{ aspectRatio: '16 / 9', maxHeight: '200px', objectFit: 'cover' }}
       loading="lazy"
       onClick={onClick}
       onError={() => setFailed(true)}
@@ -963,6 +963,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
               position={[camera.lat, camera.lng]}
               icon={cameraIcon}
               title={`Flood camera: ${camera.description}`}
+              zIndexOffset={1000} // Cameras often sit on a closed crossing; keep them above road markers
               eventHandlers={camera.key === openCameraKey ? {
                 add: (e) => {
                   if (openedCameraPopup.current) return
@@ -1000,19 +1001,19 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                   })}
 
                   {camera.kind === 'community' && camera.takenAt && (
-                    <p className={cn('text-xs mt-1', camera.stale ? 'text-amber-700 font-medium' : 'text-gray-700')}>
+                    <div className={cn('text-xs mt-1', camera.stale ? 'text-amber-700 font-medium' : 'text-gray-700')}>
                       {camera.stale ? 'Last seen' : 'Taken'} {formatCameraTime(camera.takenAt)}
-                    </p>
+                    </div>
                   )}
                   {camera.donor && (
-                    <p className="text-xs text-gray-700 mt-0.5">
+                    <div className="text-xs text-gray-700 mt-0.5">
                       Camera courtesy of {camera.donor}
-                    </p>
+                    </div>
                   )}
 
-                  <p className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-gray-500 mt-1">
                     Source: {camera.source} | Updates every {camera.intervalMin ?? 15} min
-                  </p>
+                  </div>
                   <CameraShareButton cameraKey={camera.key} name={camera.description} />
                 </div>
               </Popup>

@@ -422,12 +422,15 @@ function RainRadarLayer({ enabled }: { enabled: boolean }) {
 }
 
 // Component to handle map view changes - only flies when values actually change
-// flyTo silently does nothing if the map hasn't been laid out yet (zero size, which happens on
-// phones while the page is still settling), so jump straight there in that case
-function moveMap(map: L.Map, target: [number, number], zoom: number) {
+// Jump (no animation) while the page is still loading: panels appearing around the map resize it,
+// and Leaflet cancels a running flyTo on resize, which left gauge links at the statewide zoom.
+// Animate only once things have settled (searches and clicks), and never on a zero-size map.
+const SETTLE_MS = 2500
+
+function moveMap(map: L.Map, target: [number, number], zoom: number, animate: boolean) {
   map.invalidateSize()
   const size = map.getSize()
-  if (size.x === 0 || size.y === 0) {
+  if (!animate || size.x === 0 || size.y === 0) {
     map.setView(target, zoom, { animate: false })
   } else {
     map.flyTo(target, zoom, { duration: 0.5 })
@@ -446,8 +449,15 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
   const prevSearchLat = useRef<number | undefined>(searchedLocation?.lat)
   const prevCenter = useRef<[number, number] | undefined>(undefined)
   const prevFocusKey = useRef<number | undefined>(undefined)
+  const mountedAt = useRef(0)
 
   useEffect(() => {
+    mountedAt.current = Date.now()
+  }, [])
+
+  useEffect(() => {
+    const animate = Date.now() - mountedAt.current > SETTLE_MS
+
     // Every branch records all current values, so a change handled here (e.g. a centre set
     // alongside a selection) isn't replayed later at the statewide zoom
 
@@ -457,7 +467,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       prevGaugeId.current = selectedGaugeId
       prevSearchLat.current = searchedLocation?.lat
       prevCenter.current = center
-      moveMap(map, [focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom))
+      moveMap(map, [focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom), animate)
       return
     }
 
@@ -465,7 +475,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     if (searchedLocation && searchedLocation.lat !== prevSearchLat.current) {
       prevSearchLat.current = searchedLocation.lat
       prevCenter.current = center
-      moveMap(map, [searchedLocation.lat, searchedLocation.lng], 14)
+      moveMap(map, [searchedLocation.lat, searchedLocation.lng], 14, animate)
       return
     }
 
@@ -475,7 +485,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       if (gauge) {
         prevGaugeId.current = selectedGaugeId
         prevCenter.current = center
-        moveMap(map, [gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12))
+        moveMap(map, [gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), animate)
         return
       }
     }
@@ -487,7 +497,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       const selected = selectedGaugeId ? gauges.find(g => g.station.id === selectedGaugeId) : undefined
       const atSelectedGauge = selected && selected.station.lat === center[0] && selected.station.lng === center[1]
       if (!atSelectedGauge) {
-        moveMap(map, center, DEFAULT_ZOOM)
+        moveMap(map, center, DEFAULT_ZOOM, animate)
       }
     }
 

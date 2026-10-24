@@ -436,7 +436,6 @@ export const STATUS_COLORS: Record<string, string> = {
   watch: '#eab308',
   warning: '#f97316',
   danger: '#ef4444',
-  unknown: '#0284c7', // sky-600 - reading available but no official flood levels
   offline: '#6b7280', // gray-500
 }
 
@@ -461,11 +460,6 @@ export const STATUS_LABELS = {
     label: 'DANGER',
     message: 'Flooding occurring. Take action now.',
     action: 'Follow emergency services advice, evacuate if directed',
-  },
-  unknown: {
-    label: 'LEVEL ONLY',
-    message: 'No official flood levels are set for this gauge. Watch the trend and check BOM warnings.',
-    action: 'Check BOM flood warnings for this river',
   },
   offline: {
     label: 'OFFLINE',

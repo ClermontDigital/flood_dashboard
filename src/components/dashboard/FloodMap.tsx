@@ -510,7 +510,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
 
   // Memoize icons to prevent recreation on each render
   const icons = useMemo(() => {
-    const statusTypes: FloodStatus[] = ['safe', 'watch', 'warning', 'danger', 'unknown', 'offline']
+    const statusTypes: FloodStatus[] = ['safe', 'watch', 'warning', 'danger', 'offline']
     const normalIcons: Record<FloodStatus, L.DivIcon> = {} as Record<FloodStatus, L.DivIcon>
     const selectedIcons: Record<FloodStatus, L.DivIcon> = {} as Record<FloodStatus, L.DivIcon>
 
@@ -560,7 +560,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
         {(Object.entries(RIVER_PATHS) as [RiverSystem, [number, number][]][]).map(([riverSystem, path]) => {
           // Find the worst status for this river system
           const riverGauges = gauges.filter(g => g.station.riverSystem === riverSystem)
-          const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3, unknown: 4, offline: 5 }
+          const statusPriority: Record<FloodStatus, number> = { danger: 0, warning: 1, watch: 2, safe: 3, offline: 4 }
 
           const worstStatus = riverGauges.reduce<FloodStatus>((worst, gauge) => {
             const status = gauge.reading?.status || 'safe'
@@ -595,8 +595,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                       worstStatus === 'safe' && 'bg-green-100 text-green-800',
                       worstStatus === 'watch' && 'bg-yellow-100 text-yellow-800',
                       worstStatus === 'warning' && 'bg-orange-100 text-orange-800',
-                      worstStatus === 'danger' && 'bg-red-100 text-red-800',
-                      worstStatus === 'unknown' && 'bg-sky-100 text-sky-800'
+                      worstStatus === 'danger' && 'bg-red-100 text-red-800'
                     )}
                   >
                     {STATUS_LABELS[worstStatus].label}
@@ -700,8 +699,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                           status === 'safe' && 'bg-green-100 text-green-800',
                           status === 'watch' && 'bg-yellow-100 text-yellow-800',
                           status === 'warning' && 'bg-orange-100 text-orange-800',
-                          status === 'danger' && 'bg-red-100 text-red-800',
-                          status === 'unknown' && 'bg-sky-100 text-sky-800'
+                          status === 'danger' && 'bg-red-100 text-red-800'
                         )}
                       >
                         {STATUS_LABELS[status].label}

@@ -209,10 +209,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // older cron versions stored, or a reading carried forward too long)
   const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => {
     const reading = waterLevelMap.get(station.id)
+    const thresholds = FLOOD_THRESHOLDS[station.id] || null
     return {
       station,
-      reading: isReadingFresh(reading) ? reading : null,
-      thresholds: FLOOD_THRESHOLDS[station.id] || null,
+      // Status is recomputed here so readings stored by any cron version follow the current rules
+      reading: reading && isReadingFresh(reading) ? { ...reading, status: calculateStatus(reading.level, thresholds) } : null,
+      thresholds,
       discharge: dischargeMap.get(station.id) || null,
       rainfall: rainfallMap.get(station.id) || null,
       uptime: uptimeSummary?.[station.id] || undefined,

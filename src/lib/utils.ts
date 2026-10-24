@@ -10,8 +10,7 @@ export function cn(...inputs: ClassValue[]) {
 
 // Calculate flood status based on water level and thresholds
 export function calculateStatus(level: number, thresholds: FloodThresholds | null): FloodStatus {
-  // Without official flood levels we can't classify the reading — never call it safe
-  if (!thresholds) return 'unknown'
+  if (!thresholds) return 'safe'
 
   if (level >= thresholds.major) return 'danger'
   if (level >= thresholds.moderate) return 'warning'

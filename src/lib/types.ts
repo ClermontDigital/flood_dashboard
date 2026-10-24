@@ -1,7 +1,5 @@
 // Flood status levels
-// safe/watch/warning/danger map to below minor / minor / moderate / major flood level.
-// 'unknown' means the gauge reports a level but has no official flood levels to compare against.
-export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'unknown' | 'offline'
+export type FloodStatus = 'safe' | 'watch' | 'warning' | 'danger' | 'offline'
 
 // Trend indicators
 export type Trend = 'rising' | 'falling' | 'stable'

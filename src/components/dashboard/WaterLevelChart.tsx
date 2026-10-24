@@ -32,12 +32,13 @@ interface ChartDataPoint {
   displayTime: string
 }
 
-function formatTime(timestamp: string): string {
+function formatTime(timestamp: string | number): string {
   const date = new Date(timestamp)
   return date.toLocaleTimeString('en-AU', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
+    timeZone: 'Australia/Brisbane',
   })
 }
 
@@ -50,8 +51,12 @@ function formatFullTime(timestamp: string): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
+    timeZone: 'Australia/Brisbane',
   })
 }
+
+// Real readings wobble by a few millimetres; without a floor on the range that noise fills the chart
+const MIN_Y_SPAN_M = 0.5
 
 function CustomTooltip({
   active,
@@ -108,18 +113,32 @@ export function WaterLevelChart({
       maxLevel = Math.max(maxLevel, thresholds.major + 0.5)
     }
 
+    // Keep a sensible minimum range centred on the readings
+    if (maxLevel - minLevel < MIN_Y_SPAN_M) {
+      const mid = (maxLevel + minLevel) / 2
+      minLevel = mid - MIN_Y_SPAN_M / 2
+      maxLevel = mid + MIN_Y_SPAN_M / 2
+    }
+
     // Add padding
     const padding = (maxLevel - minLevel) * 0.1 || 0.5
-    return [Math.max(0, minLevel - padding), maxLevel + padding]
+    const low = minLevel - padding
+    return [minLevel >= 0 ? Math.max(0, low) : low, maxLevel + padding]
   }, [chartData, thresholds])
 
-  // Get tick values for X-axis (show fewer ticks for readability)
+  // Two decimals when the range is small, so tick labels don't all round to the same value
+  const yDecimals = yDomain[1] - yDomain[0] < 2 ? 2 : 1
+
+  // X-axis ticks every 4 hours on the hour. The axis is a real time scale, so gaps in
+  // readings show as gaps rather than being squashed together.
   const xTicks = useMemo(() => {
-    if (chartData.length <= 6) {
-      return chartData.map((d) => d.time)
-    }
-    const step = Math.ceil(chartData.length / 6)
-    return chartData.filter((_, i) => i % step === 0).map((d) => d.time)
+    if (chartData.length < 2) return chartData.map((d) => d.timestamp)
+    const step = 4 * 60 * 60 * 1000
+    const first = chartData[0].timestamp
+    const last = chartData[chartData.length - 1].timestamp
+    const ticks: number[] = []
+    for (let t = Math.ceil(first / step) * step; t <= last; t += step) ticks.push(t)
+    return ticks
   }, [chartData])
 
   if (chartData.length === 0) {
@@ -160,12 +179,15 @@ export function WaterLevelChart({
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
 
             <XAxis
-              dataKey="time"
+              dataKey="timestamp"
+              type="number"
+              scale="time"
+              domain={['dataMin', 'dataMax']}
+              tickFormatter={(value: number) => formatTime(value)}
               tick={{ fontSize: 12, fill: '#6b7280' }}
               tickLine={{ stroke: '#d1d5db' }}
               axisLine={{ stroke: '#d1d5db' }}
               ticks={xTicks}
-              interval="preserveStartEnd"
             />
 
             <YAxis
@@ -173,7 +195,7 @@ export function WaterLevelChart({
               tick={{ fontSize: 12, fill: '#6b7280' }}
               tickLine={{ stroke: '#d1d5db' }}
               axisLine={{ stroke: '#d1d5db' }}
-              tickFormatter={(value) => `${value.toFixed(1)}m`}
+              tickFormatter={(value: number) => `${value.toFixed(yDecimals)}m`}
               width={50}
             />
 

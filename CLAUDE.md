@@ -42,7 +42,7 @@ gcloud run deploy gauge-dashboard --source . --region asia-southeast1 --project 
 - The uptime tracking currently assumes 96 readings/day, causing hourly gauges to show ~25% uptime even when functioning perfectly
 
 ### Flood Status Model
-`FloodStatus` (src/lib/types.ts): `safe` = below minor, `watch` = minor, `warning` = moderate, `danger` = major flood level. `unknown` = the gauge has a reading but no official flood levels — shown as a blue "Level only" badge, never as safe. Labels and colours are `STATUS_LABELS` / `STATUS_COLORS` in constants.ts and `statusConfig` in StatusBadge.tsx.
+`FloodStatus` (src/lib/types.ts): `safe` = below minor (also used when a gauge has no flood thresholds), `watch` = minor, `warning` = moderate, `danger` = major. `/api/water-levels` recomputes status from the level on every response, so statuses stored by older cron versions can't leak through. Labels/colours: `STATUS_LABELS` / `STATUS_COLORS` in constants.ts and `statusConfig` in StatusBadge.tsx.
 
 ### Data Types
 ```typescript

@@ -31,6 +31,7 @@ interface FloodMapProps {
   showFuel?: boolean
   floodExtent?: { set: FloodExtentSet; level: FloodExtentLevel } | null
   focus?: MapFocus | null
+  openCameraKey?: string // Open this camera's popup once (camera share links)
 }
 
 // An explicit "show me this place" request (e.g. a search result). The key changes on every
@@ -258,6 +259,55 @@ function CameraImage({ src, alt, onClick }: { src: string; alt: string; onClick:
   )
 }
 
+// Brisbane time for a camera picture: "5:11 pm" today, "24 Oct, 5:11 pm" otherwise
+function formatCameraTime(iso: string): string {
+  const zone = { timeZone: 'Australia/Brisbane' } as const
+  const time = new Date(iso).toLocaleTimeString('en-AU', { ...zone, hour: 'numeric', minute: '2-digit', hour12: true })
+  const day = (d: Date) => d.toLocaleDateString('en-AU', zone)
+  if (day(new Date(iso)) === day(new Date())) return time
+  return `${new Date(iso).toLocaleDateString('en-AU', { ...zone, day: 'numeric', month: 'short' })}, ${time}`
+}
+
+// Shares (or copies) the camera's own link, e.g. https://gauge.clermont.digital/camera/clermont-weir
+function CameraShareButton({ cameraKey, name }: { cameraKey: string; name: string }) {
+  const [note, setNote] = useState<string | null>(null)
+  const url = `https://gauge.clermont.digital/camera/${cameraKey}`
+
+  const share = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `${name} - Gauge`, url })
+      } catch {
+        // Share sheet dismissed
+      }
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      setNote('Link copied')
+    } catch {
+      setNote(url)
+    }
+    setTimeout(() => setNote(null), 4000)
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={share}
+        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+        </svg>
+        Share this camera
+      </button>
+      {note && <span className="text-xs text-gray-500 break-all" aria-live="polite">{note}</span>}
+    </div>
+  )
+}
+
 // Create flood camera icon
 function createCameraIcon(): L.DivIcon {
   return L.divIcon({
@@ -467,7 +517,8 @@ function MapLayerToggle({
   )
 }
 
-function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true, sensors = [], showSensors = true, centres = [], showCentres = true, fuelSites = [], showFuel = false, floodExtent = null, focus = null }: FloodMapProps) {
+function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searchedLocation, roadEvents = [], showRoadClosures = true, showDams = true, showRainRadar = true, cameras = [], showCameras = true, sensors = [], showSensors = true, centres = [], showCentres = true, fuelSites = [], showFuel = false, floodExtent = null, focus = null, openCameraKey }: FloodMapProps) {
+  const openedCameraPopup = useRef(false)
   const mapCenter = center || CLERMONT_CENTER
   const [mapLayer, setMapLayer] = useState<MapLayerType>(() =>
     getLocalStorage<MapLayerType>('mapLayer', 'satellite')
@@ -911,6 +962,15 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
               key={`camera-${camera.source}-${camera.id}`}
               position={[camera.lat, camera.lng]}
               icon={cameraIcon}
+              title={`Flood camera: ${camera.description}`}
+              eventHandlers={camera.key === openCameraKey ? {
+                add: (e) => {
+                  if (openedCameraPopup.current) return
+                  openedCameraPopup.current = true
+                  // Let the map finish flying to the camera first
+                  setTimeout(() => e.target.openPopup(), 900)
+                },
+              } : undefined}
             >
               <Popup maxWidth={360} minWidth={280} autoPanPadding={[50, 50]}>
                 <div className="p-1">
@@ -924,23 +984,36 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
                   </div>
 
                   {camera.imageUrls.map((url, i) => {
-                    const imgSrc = `${url}${url.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`
+                    // Community picture URLs already change with each capture
+                    const imgSrc = camera.kind === 'community' ? url : `${url}${url.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`
                     return (
                       <CameraImage
                         key={i}
                         src={imgSrc}
                         alt={camera.description}
                         onClick={() => {
-                          const allUrls = camera.imageUrls.map(u => `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`)
+                          const allUrls = camera.imageUrls.map(u => camera.kind === 'community' ? u : `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 300000)}`)
                           setExpandedImage({ urls: allUrls, index: i, title: camera.description })
                         }}
                       />
                     )
                   })}
 
+                  {camera.kind === 'community' && camera.takenAt && (
+                    <p className={cn('text-xs mt-1', camera.stale ? 'text-amber-700 font-medium' : 'text-gray-700')}>
+                      {camera.stale ? 'Last seen' : 'Taken'} {formatCameraTime(camera.takenAt)}
+                    </p>
+                  )}
+                  {camera.donor && (
+                    <p className="text-xs text-gray-700 mt-0.5">
+                      Camera courtesy of {camera.donor}
+                    </p>
+                  )}
+
                   <p className="text-xs text-gray-500 mt-1">
-                    Source: {camera.source} | Updates every 15 min
+                    Source: {camera.source} | Updates every {camera.intervalMin ?? 15} min
                   </p>
+                  <CameraShareButton cameraKey={camera.key} name={camera.description} />
                 </div>
               </Popup>
             </Marker>

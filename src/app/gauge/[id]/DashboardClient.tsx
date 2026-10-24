@@ -75,9 +75,10 @@ interface LocationRainfallAPIResponse {
 
 interface DashboardClientProps {
   initialGaugeId?: string  // Optional - when provided, skips URL/localStorage restoration
+  initialCamera?: FloodCamera  // From a /camera/<key> share link: focus the map on it and open its popup
 }
 
-export default function DashboardClient({ initialGaugeId }: DashboardClientProps) {
+export default function DashboardClient({ initialGaugeId, initialCamera }: DashboardClientProps) {
   // Initialize with the gauge ID from prop (if provided) or null (restored later from URL/localStorage)
   const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(initialGaugeId ?? null)
   const [mapCenter, setMapCenter] = useState<[number, number]>(QLD_CENTER)
@@ -91,7 +92,9 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
   const [showCentres, setShowCentres] = useState<boolean>(true)
   const [showFuel, setShowFuel] = useState<boolean>(false)
   const [floodExtentChoice, setFloodExtentChoice] = useState<string>('') // `${setId}:${level}` or ''
-  const [mapFocus, setMapFocus] = useState<{ lat: number; lng: number; zoom: number; key: number } | null>(null)
+  const [mapFocus, setMapFocus] = useState<{ lat: number; lng: number; zoom: number; key: number } | null>(
+    () => initialCamera ? { lat: initialCamera.lat, lng: initialCamera.lng, zoom: 15, key: 1 } : null
+  )
 
   // Ref for gauge details section to scroll to
   const gaugeDetailsRef = useRef<HTMLDivElement>(null)
@@ -104,8 +107,9 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
 
   // Restore selected gauge from localStorage on mount (only if no initialGaugeId provided)
   useEffect(() => {
-    // Skip restoration if initialGaugeId was provided (e.g., from /gauge/[id] route)
-    if (initialGaugeId) {
+    // Skip restoration if initialGaugeId was provided (e.g., from /gauge/[id] route),
+    // or when opening a camera share link
+    if (initialGaugeId || initialCamera) {
       hasMounted.current = true
       return
     }
@@ -118,7 +122,7 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
       prevSelectedGaugeId.current = id
     }
     hasMounted.current = true
-  }, [initialGaugeId])
+  }, [initialGaugeId, initialCamera])
 
   // Scroll to anchor hash on mount (e.g., /gauge/130207A#history)
   useEffect(() => {
@@ -271,6 +275,13 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
     const level = set?.levels.find((l) => String(l.level) === levelStr)
     return set && level ? { set, level } : null
   }, [floodExtentChoice])
+
+  // A camera opened from a share link is always shown, even if it isn't on the public list
+  const camerasWithLinked = useMemo(() => {
+    const list = camerasData?.cameras || []
+    if (!initialCamera || list.some((c) => c.key === initialCamera.key)) return list
+    return [...list, initialCamera]
+  }, [camerasData?.cameras, initialCamera])
 
   // All gauges
   const allGauges = waterLevels?.gauges || []
@@ -453,7 +464,7 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                   showRoadClosures={showRoadClosures}
                   showDams={showDams}
                   showRainRadar={showRainRadar}
-                  cameras={camerasData?.cameras}
+                  cameras={camerasWithLinked}
                   showCameras={showCameras}
                   sensors={sensorsData?.sensors}
                   showSensors={showSensors}
@@ -463,6 +474,7 @@ export default function DashboardClient({ initialGaugeId }: DashboardClientProps
                   showFuel={showFuel}
                   floodExtent={floodExtent}
                   focus={mapFocus}
+                  openCameraKey={initialCamera?.key}
                 />
               </div>
 

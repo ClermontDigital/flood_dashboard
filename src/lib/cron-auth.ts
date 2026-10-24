@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'crypto'
+import { secretMatches } from './secrets'
 
 /**
  * Cron endpoints accept only the shared secret that Cloud Scheduler sends in the
@@ -11,11 +11,5 @@ export function isCronAuthorized(request: Request): boolean {
   if (!expected) {
     return process.env.NODE_ENV === 'development'
   }
-
-  const provided = request.headers.get('x-cron-secret')
-  if (!provided) return false
-
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  return a.length === b.length && timingSafeEqual(a, b)
+  return secretMatches(request.headers.get('x-cron-secret'), expected)
 }

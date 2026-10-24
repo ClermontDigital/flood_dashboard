@@ -270,12 +270,19 @@ export interface RoadEventsResponse {
 
 // Flood camera from council dashboard
 export interface FloodCamera {
-  id: number
+  id: number | string
+  key: string           // Stable id used in share links: `${council}-${id}` or the community camera id
   description: string
   lat: number
   lng: number
   imageUrls: string[]
-  source: string
+  source: string        // Display name of who runs the camera
+  kind?: 'council' | 'community'
+  // Community cameras only
+  takenAt?: string      // ISO time the current picture was taken
+  donor?: string        // Shown as "Camera courtesy of …"
+  intervalMin?: number  // Expected minutes between pictures
+  stale?: boolean       // Picture is older than expected or the last capture failed
 }
 
 export interface FloodCamerasResponse {

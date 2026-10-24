@@ -456,7 +456,9 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
   }, [])
 
   useEffect(() => {
-    const animate = Date.now() - mountedAt.current > SETTLE_MS
+    // Only animate once the page has settled AND the map has already been positioned once;
+    // the first positioning for a link always jumps, however long the data took to arrive
+    const settled = Date.now() - mountedAt.current > SETTLE_MS
 
     // Every branch records all current values, so a change handled here (e.g. a centre set
     // alongside a selection) isn't replayed later at the statewide zoom
@@ -467,7 +469,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       prevGaugeId.current = selectedGaugeId
       prevSearchLat.current = searchedLocation?.lat
       prevCenter.current = center
-      moveMap(map, [focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom), animate)
+      moveMap(map, [focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom), settled)
       return
     }
 
@@ -475,7 +477,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     if (searchedLocation && searchedLocation.lat !== prevSearchLat.current) {
       prevSearchLat.current = searchedLocation.lat
       prevCenter.current = center
-      moveMap(map, [searchedLocation.lat, searchedLocation.lng], 14, animate)
+      moveMap(map, [searchedLocation.lat, searchedLocation.lng], 14, settled)
       return
     }
 
@@ -483,9 +485,10 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     if (selectedGaugeId && selectedGaugeId !== prevGaugeId.current) {
       const gauge = gauges.find(g => g.station.id === selectedGaugeId)
       if (gauge) {
+        const firstGauge = prevGaugeId.current === undefined
         prevGaugeId.current = selectedGaugeId
         prevCenter.current = center
-        moveMap(map, [gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), animate)
+        moveMap(map, [gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), settled && !firstGauge)
         return
       }
     }
@@ -493,11 +496,12 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     // Only fly to center when it actually changes (not same coords). Skip it when the centre
     // is just the selected gauge's position, which we've already zoomed in on.
     if (center && (!prevCenter.current || center[0] !== prevCenter.current[0] || center[1] !== prevCenter.current[1])) {
+      const firstCenter = prevCenter.current === undefined
       prevCenter.current = center
       const selected = selectedGaugeId ? gauges.find(g => g.station.id === selectedGaugeId) : undefined
       const atSelectedGauge = selected && selected.station.lat === center[0] && selected.station.lng === center[1]
       if (!atSelectedGauge) {
-        moveMap(map, center, DEFAULT_ZOOM, animate)
+        moveMap(map, center, DEFAULT_ZOOM, settled && !firstCenter)
       }
     }
 

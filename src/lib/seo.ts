@@ -62,7 +62,7 @@ export function gaugeDescription(station: GaugeStation, thresholds: FloodThresho
 }
 
 /** "Isaac Regional Council" -> "Isaac" */
-function councilArea(source: string): string | null {
+export function councilArea(source: string): string | null {
   const area = source.replace(/\s+(Regional|Shire|City)?\s*Council$/i, '').trim()
   return area && area !== source ? area : null
 }

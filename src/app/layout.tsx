@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import Link from 'next/link'
 import Script from 'next/script'
 import { HOME_DESCRIPTION, HOME_TITLE, SITE_NAME, SITE_URL } from '@/lib/seo'
 import './globals.css'
@@ -104,6 +105,11 @@ export default function RootLayout({
         <footer className="bg-gray-800 text-gray-300 py-6 mt-8">
           <div className="max-w-7xl mx-auto px-4">
             <div className="text-center">
+              <nav aria-label="More from Gauge" className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm mb-2">
+                <Link href="/cameras" className="hover:text-white">Flood cameras</Link>
+                <Link href="/rivers" className="hover:text-white">River heights</Link>
+                <Link href="/town/clermont" className="hover:text-white">Clermont flooding</Link>
+              </nav>
               <p className="text-sm">
                 A community project by{' '}
                 <a

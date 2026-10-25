@@ -7,7 +7,9 @@
 
 import { getWaterLevelData, getGaugeUptimeSummary } from './firestore'
 import { buildWaterLevelsResponse } from './water-levels'
-import type { WaterLevelsResponse } from './types'
+import { GAUGE_STATIONS } from './constants'
+import { getFloodThresholds } from './flood-thresholds'
+import type { GaugeData, WaterLevelsResponse } from './types'
 
 const CACHE_MS = 60 * 1000
 const FAILURE_CACHE_MS = 10 * 1000
@@ -43,4 +45,10 @@ export async function getInitialWaterLevels(): Promise<WaterLevelsResponse | nul
     })
     .finally(() => { pending = null })
   return pending
+}
+
+/** Every gauge with its latest reading, or without readings if Firestore is unavailable */
+export async function getGaugeList(): Promise<GaugeData[]> {
+  const latest = await getInitialWaterLevels()
+  return latest?.gauges ?? GAUGE_STATIONS.map((station) => ({ station, reading: null, thresholds: getFloodThresholds(station.id) }))
 }

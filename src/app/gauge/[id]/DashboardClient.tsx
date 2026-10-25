@@ -35,6 +35,7 @@ const WaterLevelChart = dynamic(() => import('@/components/dashboard/WaterLevelC
 
 import { StatusBadge } from '@/components/dashboard/StatusBadge'
 import { GaugeListSidebar } from '@/components/dashboard/GaugeListSidebar'
+import { AboutGauge } from '@/components/dashboard/AboutGauge'
 import { WarningBanner } from '@/components/dashboard/WarningBanner'
 import LocationSearch from '@/components/dashboard/LocationSearch'
 import RainfallPanel from '@/components/dashboard/RainfallPanel'
@@ -1058,6 +1059,12 @@ export default function DashboardClient({ initialGaugeId, initialCamera, initial
                         </div>
                       )}
                     </div>
+
+                    <AboutGauge
+                      station={selectedGaugeBasic.station}
+                      thresholds={selectedGaugeBasic.thresholds}
+                      source={selectedGaugeBasic.reading.source}
+                    />
 
                     {/* WMIP Link */}
                     <div className="mt-3 pt-3 border-t border-gray-200">

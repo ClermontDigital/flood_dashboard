@@ -5,14 +5,17 @@ import './globals.css'
 // Google Analytics Measurement ID
 const GA_MEASUREMENT_ID = 'G-XH0PJ1D3NJ'
 
+// Not "real-time": readings come from BOM and Queensland Government gauges, which report every 15-60 minutes
+const DESCRIPTION = 'River heights, flood levels and flood cameras across Queensland, updated every few minutes from BOM and Queensland Government gauges.'
+
 export const metadata: Metadata = {
   title: 'Gauge - Queensland Flood Tracking',
-  description: 'Real-time water level monitoring and flood warnings across Queensland - Brisbane, Gold Coast, Cairns, Townsville, Mackay, Bundaberg, Rockhampton and more',
+  description: DESCRIPTION,
   manifest: '/manifest.json',
   metadataBase: new URL('https://gauge.clermont.digital'),
   openGraph: {
     title: 'Gauge - Queensland Flood Tracking',
-    description: 'Real-time water level monitoring and flood warnings across Queensland - Brisbane, Gold Coast, Cairns, Townsville, Mackay, Bundaberg, Rockhampton and more',
+    description: DESCRIPTION,
     url: 'https://gauge.clermont.digital',
     siteName: 'Gauge',
     locale: 'en_AU',
@@ -21,7 +24,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Gauge - Queensland Flood Tracking',
-    description: 'Real-time water level monitoring and flood warnings across Queensland - Brisbane, Gold Coast, Cairns, Townsville, Mackay, Bundaberg, Rockhampton and more',
+    description: DESCRIPTION,
   },
 }
 

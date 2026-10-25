@@ -58,7 +58,7 @@ export default async function Image() {
               color: '#4b5563',
             }}
           >
-            Real-time water level monitoring
+            Water levels from BOM and Queensland Government gauges
           </div>
         </div>
       </div>

@@ -1,7 +1,7 @@
 {
   "name": "GAUGE - Queensland Flood Tracking",
   "short_name": "GAUGE",
-  "description": "Real-time water level monitoring and flood warnings across Queensland",
+  "description": "River heights, flood levels and flood cameras across Queensland, from BOM and Queensland Government gauges",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f9fafb",

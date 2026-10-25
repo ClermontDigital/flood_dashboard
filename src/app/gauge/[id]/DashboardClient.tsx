@@ -165,11 +165,13 @@ export default function DashboardClient({ initialGaugeId, initialCamera, initial
   }, [selectedGaugeId])
 
   // Fetch water levels with SWR (auto-refresh every 5 minutes)
-  const { data: waterLevels, error: levelsError, isLoading: levelsLoading } = useSWR<WaterLevelsResponse>(
+  const { data: waterLevels, error: levelsError, isLoading: levelsFetching } = useSWR<WaterLevelsResponse>(
     '/api/water-levels',
     fetcher,
     { refreshInterval: REFRESH_INTERVAL, fallbackData: initialWaterLevels }
   )
+  // SWR counts the server's readings as "not loaded yet" while it refreshes them; show them anyway
+  const levelsLoading = levelsFetching && !waterLevels
 
   // Center map on restored gauge when data first loads
   useEffect(() => {

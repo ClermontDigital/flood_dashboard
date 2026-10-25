@@ -10,11 +10,6 @@ const UPSTREAM_RELATIONSHIPS: Record<
   string,
   { upstreamId: string; travelTimeHours: [number, number] }[]
 > = {
-  // Sandy Creek @ Clermont is downstream of Theresa Creek
-  '130207A': [
-    { upstreamId: '130212A', travelTimeHours: [4, 6] },
-  ],
-
   // Isaac River @ Deverill is downstream of Yatton and receives Connors River
   '130410A': [
     { upstreamId: '130401A', travelTimeHours: [6, 10] },
@@ -29,16 +24,6 @@ const UPSTREAM_RELATIONSHIPS: Record<
   // Mackenzie @ Coolmaringa is downstream of Rileys Crossing
   '130105B': [
     { upstreamId: '130113A', travelTimeHours: [6, 10] },
-  ],
-
-  // Fitzroy @ Yaamba is downstream of The Gap
-  '130003A': [
-    { upstreamId: '130004A', travelTimeHours: [12, 18] },
-  ],
-
-  // Fitzroy @ Rockhampton is downstream of Yaamba
-  '130005A': [
-    { upstreamId: '130003A', travelTimeHours: [4, 6] },
   ],
 }
 

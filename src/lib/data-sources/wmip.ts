@@ -393,7 +393,6 @@ const FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '130210A': { minor: 3.5, moderate: 5.0, major: 7.0 },   // Theresa Creek @ Valeria
   '130206A': { minor: 3.0, moderate: 4.5, major: 6.0 },   // Theresa Creek @ Gregory Hwy
   '130005A': { minor: 7.0, moderate: 8.5, major: 10.5 },  // Fitzroy @ The Gap
-  '130003A': { minor: 6.5, moderate: 8.0, major: 9.5 },   // Fitzroy @ Yaamba
   '1300073': { minor: 6.0, moderate: 7.5, major: 9.0 },   // Fitzroy @ Barrage
   '130106A': { minor: 7.0, moderate: 9.0, major: 11.0 },  // Mackenzie @ Bingegang
   '130105B': { minor: 6.5, moderate: 8.5, major: 10.5 },  // Mackenzie @ Coolmaringa

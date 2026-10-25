@@ -544,17 +544,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 147.5803,
     role: 'Primary monitoring',
   },
-  {
-    id: '120311A',
-    name: 'Clermont Alpha Rd',
-    stream: 'Eastern Creek',
-    riverSystem: 'clermont',
-    lat: -22.9000,
-    lng: 147.7000,
-    role: 'Secondary monitoring',
-    isOffline: true,
-    lastDataYear: 2024,
-  },
 
   // Theresa Creek - Upstream of Clermont
   {
@@ -574,17 +563,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -23.4292,
     lng: 148.1514,
     role: 'Upstream early warning',
-  },
-  {
-    id: '130212A',
-    name: 'Theresa Creek @ Gregory Hwy (Old)',
-    stream: 'Theresa Creek',
-    riverSystem: 'theresa',
-    lat: -22.7833,
-    lng: 147.5667,
-    role: 'Decommissioned gauge',
-    isOffline: true,
-    lastDataYear: 2024,
   },
 
   // Isaac River System (2 active + 1 offline)
@@ -643,17 +621,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -23.4816,
     lng: 148.4727,
     role: 'Below Fairbairn Dam',
-  },
-  {
-    id: '130204A',
-    name: 'Retreat Creek @ Dunrobin',
-    stream: 'Retreat Creek',
-    riverSystem: 'nogoa',
-    lat: -23.6000,
-    lng: 147.8000,
-    role: 'Tributary',
-    isOffline: true,
-    lastDataYear: 2024,
   },
 
   // Mackenzie River System (3 active)
@@ -716,17 +683,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -23.8191,
     lng: 150.8206,
     role: 'Coastal creek south of Rockhampton',
-  },
-  {
-    id: '130003A',
-    name: 'Fitzroy River @ Yaamba',
-    stream: 'Fitzroy River',
-    riverSystem: 'fitzroy',
-    lat: -23.1333,
-    lng: 150.3667,
-    role: 'Mid Fitzroy',
-    isOffline: true,
-    lastDataYear: 2024,
   },
   {
     id: '130005A',
@@ -820,17 +776,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 151.9895,
     role: 'Bundaberg upstream',
   },
-  {
-    // Offline: no WMIP gauge at Bundaberg (136016A Town Wharf closed). Bundaberg is only on the BOM flood-warning network (bom.gov.au/qld/flood), which has no API; Water Data Online lags ~1 day
-    id: '136001A',
-    name: 'Burnett River @ Bundaberg',
-    stream: 'Burnett River',
-    riverSystem: 'burnett',
-    lat: -24.8500,
-    lng: 152.3500,
-    role: 'Bundaberg city - key flood gauge',
-    isOffline: true,
-  },
 
   // ============================================
   // BRISBANE RIVER BASIN
@@ -843,17 +788,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -27.4397,
     lng: 152.6689,
     role: 'Key flood gauge - upstream Brisbane',
-  },
-  {
-    // Offline: Mt Crosby Weir is a Seqwater gauge, not in WMIP (143210A is closed Lockyer Ck at Lyons Bridge). only on the BOM flood-warning network (bom.gov.au/qld/flood), which has no API; Water Data Online lags ~1 day
-    id: '143210A',
-    name: 'Brisbane River @ Mt Crosby Weir',
-    stream: 'Brisbane River',
-    riverSystem: 'brisbane',
-    lat: -27.5400,
-    lng: 152.7700,
-    role: 'Below Wivenhoe Dam',
-    isOffline: true,
   },
   {
     // Relabelled: WMIP 143009A is Brisbane River at Gregors Creek (was shown as "Brisbane River @ Moggill", which has no WMIP telemetry)
@@ -874,17 +808,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lat: -26.8042,
     lng: 152.2730,
     role: 'Upper Brisbane - headwaters',
-  },
-  {
-    // Offline: the Brisbane City gauge (BOM 540198) is only on the BOM flood-warning network (bom.gov.au/qld/flood), which has no API; Water Data Online lags ~1 day. WMIP 143030A is Sandy Ck at Indooroopilly, closed 1999
-    id: '143030A',
-    name: 'Brisbane River @ City Gauge',
-    stream: 'Brisbane River',
-    riverSystem: 'brisbane',
-    lat: -27.4700,
-    lng: 153.0300,
-    role: 'Brisbane CBD',
-    isOffline: true,
   },
 
   // Lockyer Creek (Brisbane tributary - flood prone)
@@ -1054,15 +977,15 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   // MARY RIVER BASIN
   // ============================================
   {
-    // Offline: WMIP 138900A Mary River at Gympie FWG has no telemetry data; Gympie is BOM-only. (138001A, previously used here, is Mary River at Miva)
-    id: '138900A',
-    name: 'Mary River @ Gympie',
+    // Nearest reporting gauge to Gympie (~6 km upstream); WMIP 138900A Mary River at Gympie FWG has no telemetry
+    // and Gympie itself is BOM-only. Same gauge as BOM 040824, so BOM's flood levels apply.
+    id: '138007A',
+    name: 'Mary River @ Fishermans Pocket',
     stream: 'Mary River',
     riverSystem: 'mary',
-    lat: -26.1922,
-    lng: 152.6558,
-    role: 'Gympie township - key flood gauge',
-    isOffline: true,
+    lat: -26.1695,
+    lng: 152.6008,
+    role: 'Upstream of Gympie',
   },
   {
     // 138014A is Mary River at Home Park; 138001A is Mary River at Miva
@@ -1119,17 +1042,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     role: 'Above dam',
   },
   {
-    // Offline: WMIP 120001A Burdekin River at Home Hill is closed; no active WMIP gauge at Home Hill
-    id: '120001A',
-    name: 'Burdekin River @ Home Hill',
-    stream: 'Burdekin River',
-    riverSystem: 'burdekin',
-    lat: -19.6600,
-    lng: 147.4100,
-    role: 'Near mouth',
-    isOffline: true,
-  },
-  {
     // WMIP 120302A is a closed Cape River site; 119003A is Haughton River at Powerline
     id: '119003A',
     name: 'Haughton River @ Powerline',
@@ -1141,28 +1053,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   },
 
   // Ross River (Townsville city)
-  {
-    // Offline: Ross River at Aplins Weir (WMIP 118103A) is closed; Townsville gauges are BOM/council only. (119003A, previously used here, is Haughton River at Powerline)
-    id: '118103A',
-    name: 'Ross River @ Aplin Weir',
-    stream: 'Ross River',
-    riverSystem: 'ross',
-    lat: -19.3089,
-    lng: 146.7735,
-    role: 'Townsville city - key flood gauge',
-    isOffline: true,
-  },
-  {
-    // Offline: 119001A is not a WMIP site; Ross River Dam (WMIP 118104A headwater) is closed
-    id: '119001A',
-    name: 'Ross River @ Ross River Dam',
-    stream: 'Ross River',
-    riverSystem: 'ross',
-    lat: -19.4200,
-    lng: 146.7300,
-    role: 'Dam spillway',
-    isOffline: true,
-  },
 
   // ============================================
   // HERBERT BASIN
@@ -1332,26 +1222,15 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     role: 'Warwick township',
   },
   {
-    // Offline: no WMIP gauge at Dalby (422308B was the old Chinchilla site, closed). Nearest active: 422333A Condamine at Loudouns Bridge, ~9 km upstream
-    id: '422308B',
-    name: 'Condamine River @ Dalby',
+    // Nearest reporting gauge to Dalby (~9 km away); there is no WMIP gauge at Dalby itself. BOM has two
+    // nearby stations (Loudoun Weir, Loudoun Bridge) with different flood levels, so none are applied here.
+    id: '422333A',
+    name: 'Condamine River @ Loudouns Bridge',
     stream: 'Condamine River',
     riverSystem: 'condamine',
-    lat: -27.1800,
-    lng: 151.2600,
-    role: 'Dalby township',
-    isOffline: true,
-  },
-  {
-    // Offline: no WMIP gauge on Myall Creek at Dalby (422401B is a closed Maranoa River site)
-    id: '422401B',
-    name: 'Myall Creek @ Dalby',
-    stream: 'Myall Creek',
-    riverSystem: 'condamine',
-    lat: -27.2000,
-    lng: 151.2400,
-    role: 'Condamine tributary',
-    isOffline: true,
+    lat: -27.2251,
+    lng: 151.1857,
+    role: 'Near Dalby',
   },
   {
     // WMIP 422310A is a closed Mill Hill site; 422308C is Condamine River at Chinchilla
@@ -1411,28 +1290,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   // WESTERN QUEENSLAND
   // ============================================
   {
-    // Offline: Julius Dam gauges (WMIP 913015A/B) are closed; 915010A is a closed Dutton River site
-    id: '915010A',
-    name: 'Leichhardt River @ Julius Dam',
-    stream: 'Leichhardt River',
-    riverSystem: 'leichhardt',
-    lat: -20.1500,
-    lng: 139.7300,
-    role: 'Dam spillway',
-    isOffline: true,
-  },
-  {
-    // Offline: Lake Moondarra gauge (WMIP 913002A) is closed; 915001A is an unrelated closed site
-    id: '915001A',
-    name: 'Leichhardt River @ Moondarra',
-    stream: 'Leichhardt River',
-    riverSystem: 'leichhardt',
-    lat: -20.5800,
-    lng: 139.5500,
-    role: 'Lake Moondarra',
-    isOffline: true,
-  },
-  {
     // 915101A is not a WMIP site; 913007B is Leichhardt River at Floraville Homestead
     id: '913007B',
     name: 'Leichhardt River @ Floraville',
@@ -1463,17 +1320,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     role: 'Richmond township',
   },
   {
-    // Offline: Flinders River at Hughenden (WMIP 915004A) is closed. (912105A, previously used here, is Gregory River at Riversleigh No.2, 600 km away)
-    id: '915004A',
-    name: 'Flinders River @ Hughenden',
-    stream: 'Flinders River',
-    riverSystem: 'flinders',
-    lat: -20.8307,
-    lng: 144.1853,
-    role: 'Hughenden township',
-    isOffline: true,
-  },
-  {
     // 912001A is not a WMIP site; 915003A is Flinders River at Walkers Bend
     id: '915003A',
     name: 'Flinders River @ Walkers Bend',
@@ -1487,17 +1333,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   // ============================================
   // MACKAY - BROKEN RIVER
   // ============================================
-  {
-    // Offline: Eungella Dam gauges (WMIP 120211A/B, 120215A/B) are closed; 125101A is not a WMIP site
-    id: '125101A',
-    name: 'Broken River @ Eungella',
-    stream: 'Broken River',
-    riverSystem: 'broken',
-    lat: -21.1700,
-    lng: 148.4800,
-    role: 'Eungella Dam spillway',
-    isOffline: true,
-  },
   {
     // 125102A is not a WMIP site and Crediton (120204A/B) is closed; 120216A Old Racecourse is the active gauge below Eungella Dam
     id: '120216A',
@@ -1526,17 +1361,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   // ============================================
   // NORTH PINE
   // ============================================
-  {
-    // Offline: North Pine River at Youngs Crossing (WMIP 142101A) is closed; 142012A is not a WMIP site
-    id: '142012A',
-    name: 'North Pine River @ Young Crossing',
-    stream: 'North Pine River',
-    riverSystem: 'northpine',
-    lat: -27.3000,
-    lng: 152.8800,
-    role: 'Above North Pine Dam',
-    isOffline: true,
-  },
 
   // ============================================
   // CHANNEL COUNTRY / OUTBACK
@@ -1573,41 +1397,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   },
 
   // Diamantina River
-  {
-    // Offline: Diamantina River at Birdsville (WMIP 002101A/B) is closed
-    id: '002101A',
-    name: 'Diamantina River @ Birdsville',
-    stream: 'Diamantina River',
-    riverSystem: 'diamantina',
-    lat: -25.9000,
-    lng: 139.3500,
-    role: 'Birdsville township',
-    isOffline: true,
-  },
-  {
-    // Offline: Diamantina River at Monkira (WMIP 002103A) is closed
-    id: '002103A',
-    name: 'Diamantina River @ Monkira',
-    stream: 'Diamantina River',
-    riverSystem: 'diamantina',
-    lat: -24.8500,
-    lng: 140.5500,
-    role: 'Mid Diamantina',
-    isOffline: true,
-  },
 
   // Warrego River
-  {
-    // Offline: Warrego River at Charleville (WMIP 423201A) is closed; 423001A is not a WMIP site
-    id: '423001A',
-    name: 'Warrego River @ Charleville',
-    stream: 'Warrego River',
-    riverSystem: 'warrego',
-    lat: -26.4000,
-    lng: 146.2500,
-    role: 'Charleville township - key flood gauge',
-    isOffline: true,
-  },
   {
     // 423203A is Warrego River at Wyandra (96 km north); 423202C is Warrego River at Cunnamulla Weir
     id: '423202C',
@@ -1629,33 +1420,11 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     lng: 144.7863,
     role: 'Mid Paroo',
   },
-  {
-    id: '424101A',
-    name: 'Paroo River @ Hungerford',
-    stream: 'Paroo River',
-    riverSystem: 'paroo',
-    lat: -29.0000,
-    lng: 144.4000,
-    role: 'Lower Paroo',
-    isOffline: true,
-    lastDataYear: 2023,
-  },
 
   // ============================================
   // CAPE YORK
   // ============================================
   // Mitchell River
-  {
-    // Offline: no WMIP gauge at Kowanyama (919009A is the closed Koolatah site, replaced by 919009B Dunbar)
-    id: '919009A',
-    name: 'Mitchell River @ Kowanyama',
-    stream: 'Mitchell River',
-    riverSystem: 'mitchell',
-    lat: -15.4800,
-    lng: 141.7500,
-    role: 'Lower Mitchell - near mouth',
-    isOffline: true,
-  },
   {
     // 919201A is Palmer River at Goldfields; 919009B Dunbar replaced the Koolatah gauge (919009A, ~1 km away)
     id: '919009B',
@@ -1703,17 +1472,6 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   // GULF COUNTRY
   // ============================================
   // Norman River
-  {
-    // Offline: no WMIP gauge at Normanton (917101A is a closed Etheridge River site)
-    id: '917101A',
-    name: 'Norman River @ Normanton',
-    stream: 'Norman River',
-    riverSystem: 'norman',
-    lat: -17.6700,
-    lng: 141.0700,
-    role: 'Normanton township',
-    isOffline: true,
-  },
   {
     // 917201A is not a WMIP site; 916001B is Norman River at Glenore Weir
     id: '916001B',
@@ -1765,7 +1523,8 @@ export const GAUGE_ID_ALIASES: Record<string, string> = {
   '145102A': '145102B',
   '146002A': '146002B',
   '138014A': '138001A',
-  '138007A': '138110A',
+  '138900A': '138007A',
+  '422308B': '422333A',
   '120006A': '120006B',
   '120014B': '120002D',
   '120302A': '119003A',
@@ -1777,7 +1536,6 @@ export const GAUGE_ID_ALIASES: Record<string, string> = {
   '915101A': '913007B',
   '914101A': '915203C',
   '912101A': '915008A',
-  '912105A': '915004A',
   '912001A': '915003A',
   '125102A': '120216A',
   '141009A': '141006A',

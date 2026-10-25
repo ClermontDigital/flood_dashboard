@@ -44,6 +44,7 @@ export const OFFICIAL_FLOOD_THRESHOLDS: Record<string, FloodThresholds> = {
   '136207A': { minor: 6.5, moderate: 8.5, major: 9.5 }, // Barambah Creek @ Ban Ban (BOM 040827)
   '136315A': { minor: 4, moderate: 5, major: 6 }, // Boyne River @ Carters (BOM 540056)
   '138001A': { minor: 7.5, moderate: 9.5, major: 15.5 }, // Mary River @ Miva (BOM 040826)
+  '138007A': { minor: 7, moderate: 13, major: 18 }, // Mary River @ Fishermans Pocket (BOM 040824)
   '138110A': { minor: 5.55, moderate: 8.05, major: 11.1 }, // Mary River @ Bellbird Creek (BOM 540332)
   '141006A': { minor: 5.33, moderate: 5.76, major: 6.26 }, // Mooloolah River @ Mooloolah (BOM 540345)
   '143001C': { minor: 9, moderate: 16, major: 21 }, // Brisbane River @ Savages Crossing (BOM 540150)

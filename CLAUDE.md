@@ -57,7 +57,7 @@ Cloud Run stays in Singapore because Cloud Run domain mapping isn't available in
 ### Flood Status Model
 `FloodStatus` (src/lib/types.ts): `safe` = below minor (also used when a gauge has no flood thresholds), `watch` = minor, `warning` = moderate, `danger` = major. `/api/water-levels` recomputes status from the level on every response, so statuses stored by older cron versions can't leak through. Labels/colours: `STATUS_LABELS` / `STATUS_COLORS` in constants.ts and `statusConfig` in StatusBadge.tsx.
 
-Official flood levels live in `src/lib/flood-thresholds.ts` (one entry per gauge, citing the BOM station). Only add an entry after checking the BOM station page (`bom.gov.au/fwo/IDQ653xx/IDQ653xx.<BOM id>.tbl.shtml`): its classification, and that BOM's latest height matches our WMIP reading (same gauge zero). BOM station numbers are easy to get wrong; BOM's basin tables (`/cgi-bin/wrap_fwo.pl?IDQ60285.html` … `IDQ60296`) list every Queensland station and its page. Several older gauge entries in `GAUGE_STATIONS` (mostly offline ones) carry IDs that belong to other WMIP sites, so check names against WMIP before relying on them.
+Official flood levels live in `src/lib/flood-thresholds.ts` (one entry per gauge, citing the BOM station). Only add an entry after checking the BOM station page (`bom.gov.au/fwo/IDQ653xx/IDQ653xx.<BOM id>.tbl.shtml`): its classification, and that BOM's latest height matches our WMIP reading (same gauge zero). BOM station numbers are easy to get wrong; BOM's basin tables (`/cgi-bin/wrap_fwo.pl?IDQ60285.html` … `IDQ60296`) list every Queensland station and its page. When adding a gauge, check its ID's name and position against WMIP's site table (and BOM Water Data Online); older entries had IDs belonging to other sites.
 
 ### SEO
 Gauge, camera and home pages are rendered per request (`dynamic = 'force-dynamic'`) with the latest readings from Firestore (`src/lib/initial-data.ts`, shared response builder in `src/lib/water-levels.ts`), passed to DashboardClient as SWR `fallbackData`, so the first paint and Google see real content. Anything rendered from that data must be identical on server and client; relative times ("5 min ago") use `suppressHydrationWarning`. Titles/descriptions come from `src/lib/seo.ts` (never put a current level or status in them; Google keeps them for days). `sitemap.ts` lists home + online gauges; offline gauges and unlisted cameras are noindex. Don't describe the data as "real-time" or "live".
@@ -90,7 +90,7 @@ src/
 │   ├── WaterLevelChart.tsx   # Recharts chart (includes uptime bars)
 │   └── ...
 └── lib/
-    ├── constants.ts          # GAUGE_STATIONS array (111 gauges)
+    ├── constants.ts          # GAUGE_STATIONS array (89 gauges)
     ├── firestore.ts          # Firestore helpers + uptime tracking
     ├── types.ts              # TypeScript interfaces
     └── utils.ts              # Helper functions
@@ -137,7 +137,7 @@ Two tracking methods with different baselines:
 The percentage calculation normalizes these, but the raw numbers differ significantly.
 
 ### 6. Offline Gauges
-Some gauges in `GAUGE_STATIONS` have `isOffline: true`. This was used to exclude gauges that stopped reporting. However, gauges can come back online - check actual data before marking offline.
+`isOffline: true` excludes a gauge that has stopped reporting (no telemetry). In Oct 2026 every offline entry was checked against WMIP: gauges with no reporting station were removed, and Gympie/Dalby were re-mapped to the nearest reporting gauges (old IDs kept as `GAUGE_ID_ALIASES`). Gauges can come back online - check actual data before marking offline.
 
 ## URL Structure
 

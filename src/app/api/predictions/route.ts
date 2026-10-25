@@ -19,7 +19,6 @@ export const revalidate = 300
 // Upstream relationships for trigger warnings
 const UPSTREAM_RELATIONSHIPS: Record<string, { upstreamId: string; etaHours: string }> = {
   // Clermont area
-  '130207A': { upstreamId: '130212A', etaHours: '2-4 hours' }, // Sandy Creek from Theresa Creek
   // Isaac River
   '130410A': { upstreamId: '130401A', etaHours: '6-8 hours' }, // Deverill from Yatton
   // Nogoa River
@@ -28,14 +27,11 @@ const UPSTREAM_RELATIONSHIPS: Record<string, { upstreamId: string; etaHours: str
   '130105B': { upstreamId: '130113A', etaHours: '10-14 hours' }, // Coolmaringa from Rileys
   '130106A': { upstreamId: '130105B', etaHours: '12-18 hours' }, // Bingegang from Coolmaringa
   // Fitzroy River
-  '130003A': { upstreamId: '130004A', etaHours: '12-18 hours' }, // Yaamba from The Gap
-  '130005A': { upstreamId: '130003A', etaHours: '6-10 hours' }, // Rockhampton from Yaamba
 }
 
 // Minor flood thresholds for trigger detection
 const MINOR_THRESHOLDS: Record<string, number> = {
   '130207A': 4.5,
-  '130212A': 3.0,
   '130401A': 5.0,
   '130410A': 6.0,
   '130209A': 5.0,
@@ -44,7 +40,6 @@ const MINOR_THRESHOLDS: Record<string, number> = {
   '130106A': 8.0,
   '130113A': 6.0,
   '130004A': 7.0,
-  '130003A': 6.5,
   '130005A': 7.0,
 }
 

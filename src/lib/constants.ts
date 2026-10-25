@@ -540,8 +540,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     name: 'Sandy Creek @ Clermont',
     stream: 'Sandy Creek',
     riverSystem: 'clermont',
-    lat: -22.8245,
-    lng: 147.6392,
+    lat: -22.7975,
+    lng: 147.5803,
     role: 'Primary monitoring',
   },
   {
@@ -710,12 +710,12 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   // Fitzroy River (2 active + 1 offline)
   {
     id: '130004A',
-    name: 'Fitzroy River @ The Gap',
-    stream: 'Fitzroy River',
+    name: 'Raglan Creek @ Old Station',
+    stream: 'Raglan Creek',
     riverSystem: 'fitzroy',
-    lat: -23.3833,
-    lng: 149.9167,
-    role: 'Upper Fitzroy',
+    lat: -23.8191,
+    lng: 150.8206,
+    role: 'Coastal creek south of Rockhampton',
   },
   {
     id: '130003A',
@@ -730,12 +730,12 @@ export const GAUGE_STATIONS: GaugeStation[] = [
   },
   {
     id: '130005A',
-    name: 'Fitzroy River @ Rockhampton',
+    name: 'Fitzroy River @ The Gap',
     stream: 'Fitzroy River',
     riverSystem: 'fitzroy',
-    lat: -23.3833,
-    lng: 150.5000,
-    role: 'Final downstream',
+    lat: -23.089,
+    lng: 150.1071,
+    role: 'Upstream of Rockhampton',
   },
 
   // Burnett River System (Bundaberg region) - 10 stations
@@ -762,8 +762,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     name: 'Burnett River @ Eidsvold',
     stream: 'Burnett River',
     riverSystem: 'burnett',
-    lat: -25.3700,
-    lng: 151.1200,
+    lat: -25.4023,
+    lng: 151.1033,
     role: 'Above Mundubbera',
   },
   {
@@ -1172,8 +1172,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     name: 'Herbert River @ Ingham',
     stream: 'Herbert River',
     riverSystem: 'herbert',
-    lat: -18.6500,
-    lng: 146.1700,
+    lat: -18.6328,
+    lng: 146.1427,
     role: 'Ingham township - key flood gauge',
   },
   {
@@ -1226,8 +1226,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     name: 'Mulgrave River @ Gordonvale',
     stream: 'Mulgrave River',
     riverSystem: 'mulgrave',
-    lat: -17.1000,
-    lng: 145.7800,
+    lat: -17.1334,
+    lng: 145.7646,
     role: 'Gordonvale - key gauge',
   },
   {
@@ -1557,8 +1557,8 @@ export const GAUGE_STATIONS: GaugeStation[] = [
     name: 'Thomson River @ Longreach',
     stream: 'Thomson River',
     riverSystem: 'cooper',
-    lat: -23.4400,
-    lng: 144.2500,
+    lat: -23.4099,
+    lng: 144.2287,
     role: 'Thomson tributary',
   },
   {

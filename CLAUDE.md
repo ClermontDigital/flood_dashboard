@@ -57,6 +57,11 @@ Cloud Run stays in Singapore because Cloud Run domain mapping isn't available in
 ### Flood Status Model
 `FloodStatus` (src/lib/types.ts): `safe` = below minor (also used when a gauge has no flood thresholds), `watch` = minor, `warning` = moderate, `danger` = major. `/api/water-levels` recomputes status from the level on every response, so statuses stored by older cron versions can't leak through. Labels/colours: `STATUS_LABELS` / `STATUS_COLORS` in constants.ts and `statusConfig` in StatusBadge.tsx.
 
+Official flood levels live in `src/lib/flood-thresholds.ts` (one entry per gauge, citing the BOM station). Only add an entry after checking the BOM station page (`bom.gov.au/fwo/IDQ653xx/IDQ653xx.<BOM id>.tbl.shtml`): its classification, and that BOM's latest height matches our WMIP reading (same gauge zero). BOM station numbers are easy to get wrong; BOM's basin tables (`/cgi-bin/wrap_fwo.pl?IDQ60285.html` … `IDQ60296`) list every Queensland station and its page. Several older gauge entries in `GAUGE_STATIONS` (mostly offline ones) carry IDs that belong to other WMIP sites, so check names against WMIP before relying on them.
+
+### SEO
+Gauge, camera and home pages are rendered per request (`dynamic = 'force-dynamic'`) with the latest readings from Firestore (`src/lib/initial-data.ts`, shared response builder in `src/lib/water-levels.ts`), passed to DashboardClient as SWR `fallbackData`, so the first paint and Google see real content. Anything rendered from that data must be identical on server and client; relative times ("5 min ago") use `suppressHydrationWarning`. Titles/descriptions come from `src/lib/seo.ts` (never put a current level or status in them; Google keeps them for days). `sitemap.ts` lists home + online gauges; offline gauges and unlisted cameras are noindex. Don't describe the data as "real-time" or "live".
+
 ### Data Types
 ```typescript
 // Key interfaces in src/lib/types.ts
@@ -158,7 +163,7 @@ Required for production:
 # sets NODE_EXTRA_CA_CERTS automatically, locally pass it yourself to include those councils
 NODE_EXTRA_CA_CERTS=certs/council-intermediates.pem npm run dev
 npm run dev          # Start dev server
-npm run build        # Production build (generates static gauge pages)
+npm run build        # Production build (pages render per request; nothing is pre-generated)
 ```
 
 ## Key Decisions Made
@@ -177,11 +182,9 @@ npm run build        # Production build (generates static gauge pages)
 
 1. **Per-gauge reporting interval** - Add `reportingIntervalMinutes` to GaugeStation to fix uptime accuracy for hourly gauges
 
-2. **Better OG image** - Current logo is 120x40px; should be 1200x630px for social previews
+2. **Toast notifications** - Replace `alert()` in share/bookmark buttons with toasts
 
-3. **Toast notifications** - Replace `alert()` in share/bookmark buttons with toasts
-
-4. **Date timezone handling** - Chart X-axis dates may show wrong day due to UTC vs AEST parsing
+3. **Date timezone handling** - Chart X-axis dates may show wrong day due to UTC vs AEST parsing
 
 ## Useful Commands
 

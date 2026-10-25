@@ -438,6 +438,49 @@ function moveMap(map: L.Map, target: [number, number], zoom: number, animate: bo
   }
 }
 
+// Close open popups (e.g. a camera's) when the map moves somewhere else, keeping one that
+// belongs to the new target (a gauge's own popup when its marker was clicked)
+function closePopupsAwayFrom(map: L.Map, target?: [number, number]) {
+  const popups: L.Popup[] = []
+  map.eachLayer((layer) => { if (layer instanceof L.Popup) popups.push(layer) })
+  for (const popup of popups) {
+    const at = popup.getLatLng()
+    if (target && at && at.lat === target[0] && at.lng === target[1]) continue
+    map.closePopup(popup)
+  }
+}
+
+// react-leaflet calls popup.update() on every render while a popup is open, and Leaflet auto-pans
+// on each update, so any re-render (selecting a gauge, a data refresh) dragged the map back to the
+// open popup. Only auto-pan as a popup opens.
+function PopupAutoPanOnOpen() {
+  const map = useMap()
+
+  useEffect(() => {
+    const timers = new Map<L.Popup, ReturnType<typeof setTimeout>>()
+    const onOpen = (e: L.PopupEvent) => {
+      if (!e.popup.options.autoPan) return
+      // Long enough for react-leaflet's own update after opening
+      timers.set(e.popup, setTimeout(() => { e.popup.options.autoPan = false }, 600))
+    }
+    const onClose = (e: L.PopupEvent) => {
+      if (!timers.has(e.popup)) return
+      clearTimeout(timers.get(e.popup))
+      timers.delete(e.popup)
+      e.popup.options.autoPan = true
+    }
+    map.on('popupopen', onOpen)
+    map.on('popupclose', onClose)
+    return () => {
+      map.off('popupopen', onOpen)
+      map.off('popupclose', onClose)
+      timers.forEach((timer) => clearTimeout(timer))
+    }
+  }, [map])
+
+  return null
+}
+
 function MapController({ center, selectedGaugeId, gauges, searchedLocation, focus }: {
   center?: [number, number]
   selectedGaugeId?: string
@@ -470,6 +513,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
       prevGaugeId.current = selectedGaugeId
       prevSearchLat.current = searchedLocation?.lat
       prevCenter.current = center
+      closePopupsAwayFrom(map, [focus.lat, focus.lng])
       moveMap(map, [focus.lat, focus.lng], Math.max(map.getZoom(), focus.zoom), settled)
       return
     }
@@ -478,6 +522,7 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     if (searchedLocation && searchedLocation.lat !== prevSearchLat.current) {
       prevSearchLat.current = searchedLocation.lat
       prevCenter.current = center
+      closePopupsAwayFrom(map)
       moveMap(map, [searchedLocation.lat, searchedLocation.lng], 14, settled)
       return
     }
@@ -486,9 +531,11 @@ function MapController({ center, selectedGaugeId, gauges, searchedLocation, focu
     if (selectedGaugeId && selectedGaugeId !== prevGaugeId.current) {
       const gauge = gauges.find(g => g.station.id === selectedGaugeId)
       if (gauge) {
-        const firstGauge = prevGaugeId.current === undefined
+        // A gauge link's first positioning jumps; after a camera link has placed the map, fly as usual
+        const firstGauge = prevGaugeId.current === undefined && prevFocusKey.current === undefined
         prevGaugeId.current = selectedGaugeId
         prevCenter.current = center
+        closePopupsAwayFrom(map, [gauge.station.lat, gauge.station.lng])
         moveMap(map, [gauge.station.lat, gauge.station.lng], Math.max(map.getZoom(), 12), settled && !firstGauge)
         return
       }
@@ -634,6 +681,7 @@ function FloodMapInner({ gauges, selectedGaugeId, onSelectGauge, center, searche
           searchedLocation={searchedLocation}
           focus={focus}
         />
+        <PopupAutoPanOnOpen />
 
         {/* Rain radar overlay */}
         <RainRadarLayer enabled={showRainRadar} />

@@ -35,7 +35,7 @@ export function AboutGauge({ station, thresholds, source }: { station: GaugeStat
           </ul>
         </div>
       ) : (
-        <p>The Bureau of Meteorology hasn&apos;t published flood levels for this gauge, so Gauge can&apos;t say whether it&apos;s in flood. Watch the trend and official warnings.</p>
+        <p>The Bureau of Meteorology hasn&apos;t published flood levels for this gauge, so Gauge can&apos;t say whether it&apos;s in flood.</p>
       )}
       <p>
         Roads and causeways can flood below the minor level. Never drive through floodwater. Gauge is a community tool and doesn&apos;t replace

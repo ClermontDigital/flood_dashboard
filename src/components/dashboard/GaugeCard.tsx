@@ -46,12 +46,12 @@ function getPlainDescription(gaugeData: GaugeData): string {
       // Without official flood levels there's nothing to measure "normal" against
       description += thresholds
         ? 'Water levels are below the minor flood level.'
-        : 'There are no official flood levels for this gauge, so watch the trend and official warnings.'
+        : 'There are no official flood levels for this gauge.'
       break
     case 'watch':
       description += thresholds
         ? 'Water levels are elevated. Keep an eye on conditions and stay informed.'
-        : 'The water level is rising quickly. There are no official flood levels for this gauge, so stay informed.'
+        : 'The water level is rising quickly. There are no official flood levels for this gauge.'
       break
     case 'warning':
       description += 'Flooding is expected. Prepare to take action and avoid flood-prone areas.'

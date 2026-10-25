@@ -1,7 +1,14 @@
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { GAUGE_STATIONS, resolveGaugeId } from '@/lib/constants'
+import { getFloodThresholds } from '@/lib/flood-thresholds'
+import { getInitialWaterLevels } from '@/lib/initial-data'
+import { SITE_NAME, SITE_URL, gaugeDescription, gaugeTitle } from '@/lib/seo'
 import DashboardClient from './DashboardClient'
+
+// Rendered per request with the latest readings, so the page (and search engines) show the gauge's
+// current level straight away. Not statically generated: a build-time page would carry stale data.
+export const dynamic = 'force-dynamic'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -14,22 +21,28 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!gauge) {
     return {
-      title: 'Gauge Not Found - Queensland Flood Tracking',
+      title: 'Gauge not found',
       description: 'The requested gauge could not be found.',
     }
   }
 
-  const title = `${gauge.name} - Gauge Queensland Flood Tracking`
-  const description = `Water level monitoring for ${gauge.name} on ${gauge.stream}. View current levels, trends, and 7-day history.`
+  const thresholds = getFloodThresholds(id)
+  const title = gaugeTitle(gauge, thresholds)
+  const description = gaugeDescription(gauge, thresholds)
+  const url = `${SITE_URL}/gauge/${id}`
 
   return {
     title,
     description,
+    // Retired station IDs render the same page; point search engines at the current one
+    alternates: { canonical: url },
+    // Offline gauges have no readings to show, so keep them out of search results while offline
+    robots: gauge.isOffline ? { index: false, follow: true } : undefined,
     openGraph: {
       title,
       description,
-      url: `https://gauge.clermont.digital/gauge/${id}`,
-      siteName: 'Gauge',
+      url,
+      siteName: SITE_NAME,
       locale: 'en_AU',
       type: 'website',
     },
@@ -41,16 +54,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-// Generate static params for known gauges (improves build performance)
-export async function generateStaticParams() {
-  return GAUGE_STATIONS.map((gauge) => ({
-    id: gauge.id,
-  }))
-}
-
 // Render dashboard with the gauge pre-selected (no redirect - preserves OG tags for crawlers)
 export default async function GaugePage({ params }: Props) {
   const id = resolveGaugeId((await params).id)
   if (!GAUGE_STATIONS.some(g => g.id === id)) notFound()
-  return <DashboardClient initialGaugeId={id} />
+  const initialWaterLevels = await getInitialWaterLevels()
+  return <DashboardClient initialGaugeId={id} initialWaterLevels={initialWaterLevels ?? undefined} />
 }

@@ -76,9 +76,10 @@ interface LocationRainfallAPIResponse {
 interface DashboardClientProps {
   initialGaugeId?: string  // Optional - when provided, skips URL/localStorage restoration
   initialCamera?: FloodCamera  // From a /camera/<key> share link: focus the map on it and open its popup
+  initialWaterLevels?: WaterLevelsResponse  // Latest readings from the server, so the first paint has real content
 }
 
-export default function DashboardClient({ initialGaugeId, initialCamera }: DashboardClientProps) {
+export default function DashboardClient({ initialGaugeId, initialCamera, initialWaterLevels }: DashboardClientProps) {
   // Initialize with the gauge ID from prop (if provided) or null (restored later from URL/localStorage)
   const [selectedGaugeId, setSelectedGaugeId] = useState<string | null>(initialGaugeId ?? null)
   // Camera whose popup was opened last; its location drives the weather panel until a gauge is chosen
@@ -167,7 +168,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
   const { data: waterLevels, error: levelsError, isLoading: levelsLoading } = useSWR<WaterLevelsResponse>(
     '/api/water-levels',
     fetcher,
-    { refreshInterval: REFRESH_INTERVAL }
+    { refreshInterval: REFRESH_INTERVAL, fallbackData: initialWaterLevels }
   )
 
   // Center map on restored gauge when data first loads
@@ -309,6 +310,10 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
   // All gauges
   const allGauges = waterLevels?.gauges || []
 
+  // One h1 per page: the gauge name on gauge pages, the logo on the home page
+  const LogoHeading = initialGaugeId || initialCamera ? 'div' : 'h1'
+  const GaugeTitleHeading = initialGaugeId ? 'h1' : 'h2'
+
   // Newest reading across all gauges - the data is only as fresh as the gauges' last reports
   // (BOM / Queensland Government gauges report every 15-60 minutes), so the header shows its age
   const latestReadingAt = useMemo(() => {
@@ -407,17 +412,21 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
         {/* Header with Logo, Search, and Status */}
         <header className="mb-4">
           <div className="flex items-center gap-4">
-            {/* Logo - clickable to refresh */}
-            <Link href="/" className="flex-shrink-0">
-              <Image
-                src="/logo.png"
-                alt="Gauge - Clermont Flood Tracking"
-                width={120}
-                height={40}
-                priority
-                style={{ width: 'auto', height: '40px' }}
-              />
-            </Link>
+            {/* Logo - clickable to refresh. It's the page heading on the home page; gauge pages
+                use the gauge name instead */}
+            <LogoHeading className="flex-shrink-0">
+              <Link href="/" className="block">
+                <Image
+                  src="/logo-header.png"
+                  alt="Gauge"
+                  width={40}
+                  height={40}
+                  priority
+                  style={{ width: 'auto', height: '40px' }}
+                />
+                {LogoHeading === 'h1' && <span className="sr-only">Queensland Flood Tracking</span>}
+              </Link>
+            </LogoHeading>
 
             {/* Search - takes remaining space */}
             <div className="flex-1">
@@ -432,6 +441,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
               <div
                 role="status"
                 aria-live="polite"
+                suppressHydrationWarning
                 aria-label={
                   waterLevels.sources.includes('unavailable')
                     ? 'Data unavailable - check sources'
@@ -817,9 +827,9 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
               <div id="details" ref={gaugeDetailsRef} className="mt-4 bg-white rounded-lg shadow-sm p-4">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 id="gauge-title" className="text-xl font-semibold text-gray-900">
+                    <GaugeTitleHeading id="gauge-title" className="text-xl font-semibold text-gray-900">
                       {selectedGaugeBasic.station.name}
-                    </h2>
+                    </GaugeTitleHeading>
                     <p className="text-gray-600 text-sm">{selectedGaugeBasic.station.stream}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -922,7 +932,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                             <div className="p-3 bg-blue-50 rounded-lg">
                               <div className="text-xs text-blue-600 font-medium uppercase">Flow Rate</div>
                               <div className="text-xl font-bold text-blue-900 mt-1">
-                                {selectedGaugeBasic.discharge.value.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                                {selectedGaugeBasic.discharge.value.toLocaleString('en-AU', { maximumFractionDigits: 1 })}
                                 <span className="text-sm font-normal ml-1">{selectedGaugeBasic.discharge.unit}</span>
                               </div>
                             </div>
@@ -1023,7 +1033,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                     {/* Stale Data Warning */}
                     {isDataStale(selectedGaugeBasic.reading.timestamp) && (
                       <div className="text-sm p-2 rounded mb-4 bg-yellow-50 text-yellow-800">
-                        <span className="font-medium">Warning: Data may be outdated.</span> Last updated {formatTimeSince(selectedGaugeBasic.reading.timestamp)}
+                        <span className="font-medium">Warning: Data may be outdated.</span> <span suppressHydrationWarning>Last updated {formatTimeSince(selectedGaugeBasic.reading.timestamp)}</span>
                       </div>
                     )}
 
@@ -1114,7 +1124,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                         <div>
                           <span className="text-gray-500">Volume:</span>
                           <span className="ml-1 font-medium text-gray-900">
-                            {(dam.volume / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} GL
+                            {(dam.volume / 1000).toLocaleString('en-AU', { maximumFractionDigits: 0 })} GL
                           </span>
                         </div>
                         {dam.level > 0 && (
@@ -1126,7 +1136,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                           </div>
                         )}
                       </div>
-                      <div className="text-xs text-gray-400 mt-2">
+                      <div className="text-xs text-gray-400 mt-2" suppressHydrationWarning>
                         Updated: {formatTimeSince(dam.timestamp)}
                       </div>
                     </div>

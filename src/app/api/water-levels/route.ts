@@ -6,48 +6,31 @@
  * Primary: Reads from Firestore (updated every 1-2 min by Cloud Scheduler)
  * Fallback: Direct fetch from WMIP/BOM if Firestore is unavailable
  *
- * Readings are only served while recent enough to present as current:
- * WMIP readings up to 24h old (the WMIP request window; the UI flags anything
- * over 3h as outdated) and BOM readings up to BOM_MAX_READING_AGE_MS, because
- * BOM Water Data Online lags real time by ~14-24h.
+ * The response is built by buildWaterLevelsResponse (src/lib/water-levels.ts), which the
+ * server-rendered pages share; it also decides which readings are recent enough to serve.
  */
 
 import { NextResponse, NextRequest } from 'next/server'
-import { OFFICIAL_FLOOD_THRESHOLDS } from '@/lib/flood-thresholds'
 import { jsonResponse } from '@/lib/http'
-import type { WaterLevelsResponse, GaugeData, WaterLevel, FloodThresholds, DischargeReading, RainfallReading, DamStorageReading } from '@/lib/types'
+import type { WaterLevelsResponse, WaterLevel, DischargeReading, RainfallReading, DamStorageReading } from '@/lib/types'
+import { OFFICIAL_FLOOD_THRESHOLDS } from '@/lib/flood-thresholds'
 import { GAUGE_STATIONS } from '@/lib/constants'
 import { calculateStatus } from '@/lib/utils'
+import { buildWaterLevelsResponse, isReadingFresh } from '@/lib/water-levels'
 import {
   fetchWMIPMultipleGauges,
   fetchBOMMultipleGauges,
   fetchBOMExtendedData,
   fetchAllBOMDamStorage,
 } from '@/lib/data-sources'
-import { BOM_MAX_READING_AGE_MS } from '@/lib/data-sources/bom'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '@/lib/rate-limit'
 import { getWaterLevelData, getGaugeUptimeSummary } from '@/lib/firestore'
 
 // Cache configuration - revalidate every 5 minutes
 export const revalidate = 300
 
-// Known flood thresholds for gauges
 // Official BOM flood levels, shared across routes (src/lib/flood-thresholds.ts)
 const FLOOD_THRESHOLDS = OFFICIAL_FLOOD_THRESHOLDS
-
-const WMIP_MAX_READING_AGE_MS = 24 * 60 * 60 * 1000
-
-/**
- * Whether a reading is recent enough to present as the current level
- * (allows 1 minute of clock skew for future timestamps)
- */
-function isReadingFresh(reading: WaterLevel | null | undefined): reading is WaterLevel {
-  if (!reading) return false
-  const dataTime = new Date(reading.timestamp).getTime()
-  const maxAge = reading.source === 'bom' ? BOM_MAX_READING_AGE_MS : WMIP_MAX_READING_AGE_MS
-  const now = Date.now()
-  return !isNaN(dataTime) && now - dataTime < maxAge && dataTime <= now + 60 * 1000
-}
 
 /**
  * Fallback: Fetch water level data directly from WMIP/BOM
@@ -195,29 +178,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Fetch uptime data
   const uptimeSummary = await getGaugeUptimeSummary()
 
-  // Build response
-  // Never present stale readings as current (e.g. BOM daily aggregates that
-  // older cron versions stored, or a reading carried forward too long)
-  const gauges: GaugeData[] = GAUGE_STATIONS.map((station) => {
-    const reading = waterLevelMap.get(station.id)
-    const thresholds = FLOOD_THRESHOLDS[station.id] || null
-    return {
-      station,
-      // Status is recomputed here so readings stored by any cron version follow the current rules
-      reading: reading && isReadingFresh(reading) ? { ...reading, status: calculateStatus(reading.level, thresholds, reading.changeRate) } : null,
-      thresholds,
-      discharge: dischargeMap.get(station.id) || null,
-      rainfall: rainfallMap.get(station.id) || null,
-      uptime: uptimeSummary?.[station.id] || undefined,
-    }
-  })
-
-  const response: WaterLevelsResponse = {
-    timestamp: new Date().toISOString(),
-    gauges,
-    sources,
-    damStorage: damStorage.length > 0 ? damStorage : undefined,
-  }
+  const response = buildWaterLevelsResponse({ waterLevelMap, dischargeMap, rainfallMap, damStorage, sources, uptimeSummary })
 
   return jsonResponse(request, response, {
     headers: {

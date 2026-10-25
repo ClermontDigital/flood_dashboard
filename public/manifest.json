@@ -1,6 +1,6 @@
 {
-  "name": "GAUGE - Queensland Flood Tracking",
-  "short_name": "GAUGE",
+  "name": "Gauge Flood Tracker",
+  "short_name": "Gauge",
   "description": "River heights, flood levels and flood cameras across Queensland, from BOM and Queensland Government gauges",
   "start_url": "/",
   "display": "standalone",

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { cn, formatLevel, formatTimeSince, getTrendArrow, isDataStale } from '@/lib/utils'
 import type { GaugeData, Trend } from '@/lib/types'
 import { StatusBadge } from './StatusBadge'
@@ -73,6 +74,26 @@ function getPlainDescription(gaugeData: GaugeData): string {
   return description
 }
 
+// The name links to the gauge's own page, so search engines can follow it and Ctrl/Cmd-click opens
+// a new tab. On a selectable card a plain click is left to the card (selects the gauge in place),
+// and the card itself is the keyboard target, so the link stays out of the tab order.
+function GaugeNameLink({ id, name, selectable }: { id: string; name: string; selectable: boolean }) {
+  return (
+    <Link
+      href={`/gauge/${id}`}
+      prefetch={false}
+      tabIndex={selectable ? -1 : undefined}
+      onClick={(e) => {
+        if (!selectable) return
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) e.stopPropagation()
+        else e.preventDefault()
+      }}
+    >
+      {name}
+    </Link>
+  )
+}
+
 export function GaugeCard({ gaugeData, onClick, selected, compact = false }: GaugeCardProps) {
   const { station, reading, thresholds } = gaugeData
   const hasData = reading !== null
@@ -103,7 +124,9 @@ export function GaugeCard({ gaugeData, onClick, selected, compact = false }: Gau
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-medium text-gray-900 truncate">{station.name}</h3>
+            <h3 className="text-sm font-medium text-gray-900 truncate">
+              <GaugeNameLink id={station.id} name={station.name} selectable={!!onClick} />
+            </h3>
             <p className="text-xs text-gray-500 truncate">{station.stream}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -177,7 +200,9 @@ export function GaugeCard({ gaugeData, onClick, selected, compact = false }: Gau
       {/* Header */}
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
         <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-semibold text-gray-900 truncate">{station.name}</h3>
+          <h3 className="text-lg font-semibold text-gray-900 truncate">
+            <GaugeNameLink id={station.id} name={station.name} selectable={!!onClick} />
+          </h3>
           <p className="text-sm text-gray-600">{station.stream}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -238,7 +263,8 @@ export function GaugeCard({ gaugeData, onClick, selected, compact = false }: Gau
 
           {/* Last Updated */}
           <footer className="flex items-center justify-between pt-2 border-t border-gray-100">
-            <p className={cn('text-xs', staleData ? 'text-amber-600' : 'text-gray-500')}>
+            {/* Relative time differs between the server render and the browser; the browser's wins */}
+            <p className={cn('text-xs', staleData ? 'text-amber-600' : 'text-gray-500')} suppressHydrationWarning>
               {staleData && (
                 <span className="inline-flex items-center mr-1" aria-hidden="true">
                   <svg className="w-3 h-3 mr-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

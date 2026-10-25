@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import type { GaugeData, RiverSystem } from '@/lib/types'
 import { StatusBadge } from './StatusBadge'
@@ -230,9 +231,17 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
                 <div className="text-xs font-medium text-gray-500 mb-1.5">{RIVER_LABELS[river]}</div>
                 <div className="flex gap-1.5">
                   {alertGauges.map(gauge => (
-                    <button
+                    // A real link to the gauge's page (search engines follow it; Ctrl/Cmd-click opens a
+                    // new tab); a plain click selects the gauge in place
+                    <Link
                       key={gauge.station.id}
-                      onClick={() => onSelectGauge(gauge.station.id)}
+                      href={`/gauge/${gauge.station.id}`}
+                      prefetch={false}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                        e.preventDefault()
+                        onSelectGauge(gauge.station.id)
+                      }}
                       className={cn(
                         'flex flex-col items-center p-2 rounded-lg transition-all min-w-[70px]',
                         'hover:ring-2 hover:ring-blue-300',
@@ -252,7 +261,7 @@ export function BasinOverview({ gauges, selectedGaugeId, onSelectGauge, isLoadin
                       >
                         {gauge.reading!.trend === 'rising' ? '↑' : gauge.reading!.trend === 'falling' ? '↓' : '—'}
                       </div>
-                    </button>
+                    </Link>
                   ))}
                 </div>
               </div>

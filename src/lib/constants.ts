@@ -377,7 +377,7 @@ export const DAM_STATIONS: DamStation[] = [
 ]
 
 // Application name
-export const APP_NAME = 'GAUGE'
+export const APP_NAME = 'Gauge'
 export const APP_TAGLINE = 'Latest water levels across Queensland'
 
 // Map tile layers

@@ -1,30 +1,30 @@
 import type { Metadata, Viewport } from 'next'
 import Script from 'next/script'
+import { HOME_DESCRIPTION, HOME_TITLE, SITE_NAME, SITE_URL } from '@/lib/seo'
 import './globals.css'
 
 // Google Analytics Measurement ID
 const GA_MEASUREMENT_ID = 'G-XH0PJ1D3NJ'
 
-// Not "real-time": readings come from BOM and Queensland Government gauges, which report every 15-60 minutes
-const DESCRIPTION = 'River heights, flood levels and flood cameras across Queensland, updated every few minutes from BOM and Queensland Government gauges.'
-
 export const metadata: Metadata = {
-  title: 'Gauge - Queensland Flood Tracking',
-  description: DESCRIPTION,
+  // Pages set their own title; the template adds the brand
+  title: { default: HOME_TITLE, template: '%s | Gauge' },
+  description: HOME_DESCRIPTION,
+  applicationName: SITE_NAME,
   manifest: '/manifest.json',
-  metadataBase: new URL('https://gauge.clermont.digital'),
+  metadataBase: new URL(SITE_URL),
   openGraph: {
-    title: 'Gauge - Queensland Flood Tracking',
-    description: DESCRIPTION,
-    url: 'https://gauge.clermont.digital',
-    siteName: 'Gauge',
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    url: SITE_URL,
+    siteName: SITE_NAME,
     locale: 'en_AU',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Gauge - Queensland Flood Tracking',
-    description: DESCRIPTION,
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
   },
 }
 
@@ -41,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en-AU">
       <head>
         {/* Google Analytics */}
         <Script
@@ -56,12 +56,6 @@ export default function RootLayout({
             gtag('config', '${GA_MEASUREMENT_ID}');
           `}
         </Script>
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-          crossOrigin=""
-        />
       </head>
       <body className="min-h-screen bg-gray-50">
         {/* Emergency Resources Banner */}

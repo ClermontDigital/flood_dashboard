@@ -1,26 +1,31 @@
-'use client'
-
-import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import DashboardClient from './gauge/[id]/DashboardClient'
+import { getInitialWaterLevels } from '@/lib/initial-data'
+import { SITE_NAME, SITE_URL } from '@/lib/seo'
 
-// Loading fallback for Suspense
-function LoadingSpinner() {
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-12 h-12 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-4" />
-        <span className="text-gray-500">Loading dashboard...</span>
-      </div>
-    </div>
-  )
+// Rendered per request with the latest readings, so the first paint (and search engines) get real
+// content. The dashboard restores a remembered gauge from localStorage after it loads.
+export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  alternates: { canonical: '/' },
 }
 
-// Main page - uses shared DashboardClient without initialGaugeId
-// This restores gauge selection from localStorage
-export default function DashboardPage() {
+// Gives Google the site's own name; without it Google shows the parent domain's "Clermont Digital"
+const WEBSITE_JSON_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: SITE_NAME,
+  alternateName: ['Gauge', 'Gauge QLD'],
+  url: `${SITE_URL}/`,
+}
+
+export default async function DashboardPage() {
+  const initialWaterLevels = await getInitialWaterLevels()
   return (
-    <Suspense fallback={<LoadingSpinner />}>
-      <DashboardClient />
-    </Suspense>
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_JSON_LD) }} />
+      <DashboardClient initialWaterLevels={initialWaterLevels ?? undefined} />
+    </>
   )
 }

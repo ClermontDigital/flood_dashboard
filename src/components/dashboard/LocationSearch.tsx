@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { GAUGE_STATIONS, QUICK_LINKS } from '@/lib/constants'
 import type { SearchResult, GaugeStation } from '@/lib/types'
-import { cn, fuzzySearch } from '@/lib/utils'
+import { calculateDistance, cn, fuzzySearch } from '@/lib/utils'
 import { sanitizeSearchQuery } from '@/lib/sanitize'
 import { searchAddress, type GeocodingResult } from '@/lib/geocoding'
 
@@ -201,14 +201,14 @@ export default function LocationSearch({ onSelect, onAddressSelect }: LocationSe
         setIsLocating(false)
         const { latitude, longitude } = position.coords
 
-        // Find nearest gauge
+        // Find the nearest gauge that's reporting (offline gauges have no readings to show),
+        // by real distance rather than raw degrees, which skew east-west
         let nearestGauge: GaugeStation | null = null
         let minDistance = Infinity
 
         for (const station of GAUGE_STATIONS) {
-          const distance = Math.sqrt(
-            Math.pow(station.lat - latitude, 2) + Math.pow(station.lng - longitude, 2)
-          )
+          if (station.isOffline) continue
+          const distance = calculateDistance(latitude, longitude, station.lat, station.lng)
           if (distance < minDistance) {
             minDistance = distance
             nearestGauge = station
@@ -220,7 +220,7 @@ export default function LocationSearch({ onSelect, onAddressSelect }: LocationSe
             type: 'gauge',
             id: nearestGauge.id,
             name: nearestGauge.name,
-            description: `Nearest gauge - ${nearestGauge.stream}`,
+            description: `Nearest gauge (${Math.round(minDistance)} km) - ${nearestGauge.stream}`,
             lat: nearestGauge.lat,
             lng: nearestGauge.lng,
           }

@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og'
 
 export const runtime = 'edge'
 
-export const alt = 'Clermont Flood Tracking'
+export const alt = 'Gauge - Queensland Flood Tracking'
 export const size = {
   width: 1200,
   height: 630,
@@ -50,7 +50,7 @@ export default async function Image() {
               textAlign: 'center',
             }}
           >
-            Clermont Flood Tracking
+            Queensland Flood Tracking
           </div>
           <div
             style={{

@@ -8,7 +8,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { GaugeData, WaterLevelsResponse, FloodWarning, HistoryPoint, FloodThresholds, GaugeStation, RoadEventsResponse, GaugeUptimeData, FloodCamera, FloodCamerasResponse, CouncilRoadsResponse, ActiveCentresResponse, CouncilSensorsResponse, FuelResponse } from '@/lib/types'
 import { FLOOD_EXTENT_SETS } from '@/lib/flood-extents'
-import { formatTimeSince, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance, getLocalStorage, setLocalStorage } from '@/lib/utils'
+import { formatTimeSince, formatAgoShort, isDataStale, formatLevel, getTrendArrow, cn, calculateDistance, sortByDistance, getLocalStorage, setLocalStorage } from '@/lib/utils'
 
 // Loading placeholder component
 function LoadingPlaceholder({ height, label }: { height: string; label: string }) {
@@ -309,6 +309,24 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
   // All gauges
   const allGauges = waterLevels?.gauges || []
 
+  // Newest reading across all gauges - the data is only as fresh as the gauges' last reports
+  // (BOM / Queensland Government gauges report every 15-60 minutes), so the header shows its age
+  const latestReadingAt = useMemo(() => {
+    let latest = 0
+    for (const gauge of waterLevels?.gauges ?? []) {
+      const t = gauge.reading ? Date.parse(gauge.reading.timestamp) : NaN
+      if (t > latest) latest = t
+    }
+    return latest || null
+  }, [waterLevels?.gauges])
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
+  const dataSourceLabel = waterLevels?.sources.filter(s => ['wmip', 'bom'].includes(s)).map(s => s.toUpperCase()).join(' + ') ?? ''
+  const dataAge = latestReadingAt ? formatAgoShort(Math.min(latestReadingAt, now), now) : null
+
   // Weather for the selected camera or gauge, otherwise the map center (Queensland center)
   const weatherLocation = weatherPlace ?? { lat: mapCenter[0], lng: mapCenter[1], name: 'Queensland' }
 
@@ -419,7 +437,7 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                     ? 'Data unavailable - check sources'
                     : waterLevels.sources.includes('error')
                     ? 'API error - refresh to retry'
-                    : `Live data from ${waterLevels.sources.filter(s => ['wmip', 'bom'].includes(s)).join(' and ')}`
+                    : `Data from ${dataSourceLabel.replace(' + ', ' and ')}${dataAge ? `, latest reading ${dataAge}` : ''}`
                 }
                 className={cn(
                   'px-3 py-1 rounded-full text-xs font-medium flex-shrink-0',
@@ -433,7 +451,11 @@ export default function DashboardClient({ initialGaugeId, initialCamera }: Dashb
                 ) : waterLevels.sources.includes('error') ? (
                   <span>API ERROR</span>
                 ) : (
-                  <span>LIVE: {waterLevels.sources.filter(s => ['wmip', 'bom'].includes(s)).map(s => s.toUpperCase()).join(' + ')}</span>
+                  <span>
+                    {/* Phones get just the age, so the search box keeps its width */}
+                    {dataAge ? <><span className="hidden sm:inline">Updated </span>{dataAge}</> : 'Data'}
+                    {dataSourceLabel && <span className="hidden sm:inline"> · {dataSourceLabel}</span>}
+                  </span>
                 )}
               </div>
             )}

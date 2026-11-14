@@ -109,6 +109,7 @@ export default function RootLayout({
                 <Link href="/cameras" className="hover:text-white">Flood cameras</Link>
                 <Link href="/rivers" className="hover:text-white">River heights</Link>
                 <Link href="/town/clermont" className="hover:text-white">Clermont flooding</Link>
+                <Link href="/home-assistant" className="hover:text-white">Home Assistant</Link>
               </nav>
               <p className="text-sm">
                 A community project by{' '}

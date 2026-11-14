@@ -7,7 +7,7 @@ import { SITE_URL } from '@/lib/seo'
 // Built per request so lastModified follows the latest readings
 export const dynamic = 'force-dynamic'
 
-// Home, the camera/river/town pages and every online gauge. Offline gauges are noindex while offline. Camera pages are left out
+// Home, the camera/river/town pages, the Home Assistant page and every online gauge. Offline gauges are noindex while offline. Camera pages are left out
 // until they show the camera's own details in the page (today that's only in the map popup).
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const latest = await getInitialWaterLevels()
@@ -21,6 +21,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/rivers` },
     ...RIVER_PAGES.map((system) => ({ url: `${SITE_URL}/river/${system}` })),
     ...TOWN_PAGES.map((town) => ({ url: `${SITE_URL}/town/${town.slug}` })),
+    { url: `${SITE_URL}/home-assistant` },
   ]
   return [{ url: `${SITE_URL}/` }, ...pages, ...gauges]
 }
